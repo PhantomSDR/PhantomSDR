@@ -1,0 +1,7 @@
+[wrap-git]
+url = https://github.com/zaphoyd/websocketpp.git
+revision = head
+patch_directory = websocketpp
+
+[provide]
+websocketpp = websocketpp_dep

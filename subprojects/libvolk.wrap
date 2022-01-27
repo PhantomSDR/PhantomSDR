@@ -1,0 +1,5 @@
+[wrap-git]
+url = https://github.com/gnuradio/volk.git
+revision = head
+clone-recursive = true
+

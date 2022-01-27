@@ -1,0 +1,6 @@
+[wrap-git]
+url = https://github.com/khizmax/libcds.git
+revision = head
+
+[provide]
+dependency_names = libcds

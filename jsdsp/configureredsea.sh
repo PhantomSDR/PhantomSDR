@@ -1,0 +1,1 @@
+emconfigure ./configure CXXFLAGS="-I$(pwd)/../include -O3 -flto" LDFLAGS="-L$(pwd)/../lib -s MODULARIZE=1 -s EXPORT_ES6=1 -s USE_ES6_IMPORT_META=0 -s ENVIRONMENT='web,worker' -O3 -flto" --host=x86_64-pc-linux-gnu

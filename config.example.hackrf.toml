@@ -1,0 +1,20 @@
+[server]
+port=9002 # Server port
+html_root="html-svelte/dist/" # HTML files to be hosted
+otherusers=1 # Send where other users are listening, 0 to disable
+
+[input]
+sps=20000000 # Input Sample Rate
+fft_size=1048576 # FFT bins
+frequency=98000000 # Baseband frequency
+signal="iq" # real or iq
+accelerator="cuda" # Accelerator: none, cuda, opencl
+audio_sps=192000 # Audio Sample Rate
+
+[input.driver]
+name="stdin" # Driver name
+format="u8" # Sample format: u8, s8, u16, s16, u32, s32, f32, f64
+
+[input.defaults]
+frequency=92400000 # Default frequency to show user
+modulation="WBFM" # Default modulation
