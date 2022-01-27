@@ -24,6 +24,7 @@ int ZstdEncoder::send(const void *buffer, size_t bytes, unsigned current_frame,
     return 0;
 }
 
+#ifdef HAS_LIBAOM
 
 AV1Encoder::AV1Encoder(websocketpp::connection_hdl hdl, server *m_server,
                        int waterfall_size)
@@ -107,3 +108,4 @@ AV1Encoder::~AV1Encoder() {
     aom_img_free(&image);
     aom_codec_destroy(&codec);
 }
+#endif

@@ -18,10 +18,13 @@ void broadcast_server::on_open_waterfall(connection_hdl hdl) {
     if (waterfall_compression == WATERFALL_ZSTD) {
         d->waterfall_encoder =
             std::make_unique<ZstdEncoder>(hdl, &m_server, min_waterfall_fft);
-    } else if (waterfall_compression == WATERFALL_AV1) {
+    } 
+#ifdef HAS_LIBAOM
+    else if (waterfall_compression == WATERFALL_AV1) {
         d->waterfall_encoder =
             std::make_unique<AV1Encoder>(hdl, &m_server, min_waterfall_fft);
     }
+#endif
 
     server::connection_ptr con = m_server.get_con_from_hdl(hdl);
     con->set_close_handler(std::bind(&broadcast_server::on_close_waterfall,

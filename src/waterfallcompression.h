@@ -37,6 +37,7 @@ class ZstdEncoder : public WaterfallEncoder {
     std::vector<uint8_t> last;
 };
 
+#ifdef HAS_LIBAOM
 class AV1Encoder : public WaterfallEncoder {
   public:
     AV1Encoder(websocketpp::connection_hdl hdl, server *m_server,
@@ -55,4 +56,5 @@ class AV1Encoder : public WaterfallEncoder {
     uint32_t header_multi_u32[4 * WATERFALL_COALESCE];
     uint8_t header_compressed_u8[4 * WATERFALL_COALESCE * 4 * 2];
 };
+#endif
 #endif

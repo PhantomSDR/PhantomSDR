@@ -87,7 +87,11 @@ broadcast_server::broadcast_server(
     if (waterfall_compression_str == "zstd") {
         waterfall_compression = WATERFALL_ZSTD;
     } else if (waterfall_compression_str == "av1") {
+#ifdef HAS_LIBAOM
         waterfall_compression = WATERFALL_AV1;
+#else
+        throw "AV1 support not compiled in";
+#endif
     }
 
     audio_compression_str = str_config["audio_compression"];
