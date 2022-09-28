@@ -83,6 +83,18 @@ FFTW::~FFTW() {
 #ifdef CUFFT
 cuFFT::cuFFT(size_t size, int nthreads) : FFT(size, nthreads), plan{0} {}
 
+float* cuFFT::malloc(size_t size) {
+    return new float[size];
+}
+void cuFFT::free(float* ptr) {
+    delete[] ptr;
+}
+int cuFFT::get_cuda_ptrs() {
+    cudaMalloc(&cuda_inbuf, sizeof(float) * size * 2);
+    cudaMalloc(&cuda_outbuf, sizeof(float) * size * 4);
+    has_cuda_malloc = true;
+    return 0;
+}
 int cuFFT::plan_c2c(direction d, int options) {
     assert(!plan);
 
@@ -119,6 +131,7 @@ int cuFFT::plan_c2r(int options) {
     return 0;
 }
 int cuFFT::execute() {
+    cudaMemcpy(cuda_inbuf, inbuf, sizeof(float) * size * 2, cudaMemcpyHostToDevice);
     if (type == CUFFT_C2C) {
         cufftExecC2C(plan, (cufftComplex *)cuda_inbuf,
                      (cufftComplex *)cuda_outbuf, cuda_direction);
@@ -129,11 +142,22 @@ int cuFFT::execute() {
         cufftExecC2R(plan, (cufftComplex *)cuda_inbuf,
                      (cufftReal *)cuda_outbuf);
     }
+    cudaMemcpy(outbuf, cuda_outbuf, sizeof(float) * size * 4, cudaMemcpyDeviceToHost);
     return 0;
 }
 cuFFT::~cuFFT() {
     if (plan) {
         cufftDestroy(plan);
+    }
+    if (has_cuda_malloc) {
+        cudaFree(cuda_inbuf);
+        cudaFree(cuda_outbuf);
+    }
+    if (inbuf) {
+        this->free(inbuf);
+    }
+    if (outbuf) {
+        this->free(outbuf);
     }
 }
 

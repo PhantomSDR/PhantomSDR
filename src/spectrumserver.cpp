@@ -98,7 +98,11 @@ broadcast_server::broadcast_server(
     if (audio_compression_str == "flac") {
         audio_compression = AUDIO_FLAC;
     } else if (audio_compression_str == "opus") {
+#ifdef HAS_OPUS
         audio_compression = AUDIO_OPUS;
+#else
+        throw "Opus support not compiled in";
+#endif
     }
 
     fft_accelerator accelerator = CPU_FFTW;
@@ -118,7 +122,7 @@ broadcast_server::broadcast_server(
             std::cout << "No CUDA GPUs found" << std::endl;
             std::exit(0);
         }
-        fft = std::make_unique<cuFFTZeroCopy>(fft_size, fft_threads);
+        fft = std::make_unique<cuFFT>(fft_size, fft_threads);
 #else
         throw "CUDA support is not compiled in";
 #endif
@@ -198,19 +202,19 @@ void broadcast_server::stop() {
     fft_processed.notify_all();
 
     m_server.stop_listening();
-    for (auto &it : signal_slices) {
+    for (auto &[slice, data] : signal_slices) {
         websocketpp::lib::error_code ec;
         try {
-            m_server.close(it.second->hdl,
+            m_server.close(data->hdl,
                            websocketpp::close::status::going_away, "", ec);
         } catch (...) {
         }
     }
     for (auto &waterfall_slice : waterfall_slices) {
-        for (auto &it : waterfall_slice) {
+        for (auto &[slice, data] : waterfall_slice) {
             websocketpp::lib::error_code ec;
             try {
-                m_server.close(it.second->hdl,
+                m_server.close(data->hdl,
                                websocketpp::close::status::going_away, "", ec);
             } catch (...) {
             }

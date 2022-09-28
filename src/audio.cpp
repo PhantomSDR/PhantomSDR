@@ -40,6 +40,7 @@ int FlacEncoder::finish_encoder() { return this->finish(); }
 
 FlacEncoder::~FlacEncoder() { this->finish(); }
 
+#ifdef HAS_LIBOPUS
 OpusEncoder::OpusEncoder(websocketpp::connection_hdl hdl, server *m_server,
                          int samplerate)
     : AudioEncoder(hdl, m_server) {
@@ -72,3 +73,4 @@ int OpusEncoder::process(int32_t *data, size_t size) {
 OpusEncoder::~OpusEncoder() { opus_encoder_destroy(encoder); }
 
 int OpusEncoder::finish_encoder() { return 0; }
+#endif

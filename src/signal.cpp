@@ -27,11 +27,14 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
             encoder->set_streamable_subset(true);
             encoder->init();
             d->encoder = std::move(encoder);
-        } else if (audio_compression == AUDIO_OPUS) {
+        } 
+#ifdef HAS_LIBOPUS
+        else if (audio_compression == AUDIO_OPUS) {
             std::unique_ptr<OpusEncoder> encoder =
                 std::make_unique<OpusEncoder>(hdl, &m_server, audio_max_sps);
             d->encoder = std::move(encoder);
         }
+#endif
     }
 
     d->unique_id = generate_unique_id();
@@ -304,25 +307,24 @@ void broadcast_server::signal_loop() {
     }
     std::lock_guard lg(signal_slice_mtx);
     // Send the apprioriate signal slice to the client
-    for (auto &it : signal_slices) {
-        int l_idx = it.first.first;
-        int r_idx = it.first.second;
+    for (auto &[slice, data] : signal_slices) {
+        auto &[l_idx, r_idx] = slice;
         // If the client is slow, avoid unnecessary buffering and drop the
         // audio
-        if (m_server.get_con_from_hdl(it.second->hdl)->get_buffered_amount() <=
+        if (m_server.get_con_from_hdl(data->hdl)->get_buffered_amount() <=
             1000000) {
             if (server_threads == 1) {
-                signal_send(it.second,
+                signal_send(data,
                             &fft_buffer[(l_idx + base_idx) % fft_result_size],
                             r_idx - l_idx);
             } else {
-                if (!it.second->processing) {
-                    it.second->processing = 1;
+                if (!data->processing) {
+                    data->processing = 1;
                     m_server.get_io_service().post(
-                        m_server.get_con_from_hdl(it.second->hdl)
+                        m_server.get_con_from_hdl(data->hdl)
                             ->get_strand()
                             ->wrap(std::bind(&broadcast_server::signal_send,
-                                             this, it.second,
+                                             this, data,
                                              &fft_buffer[(l_idx + base_idx) %
                                                          fft_result_size],
                                              r_idx - l_idx)));

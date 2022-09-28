@@ -47,6 +47,7 @@ class FlacEncoder : public AudioEncoder, public FLAC::Encoder::Stream {
     int process(int32_t *data, size_t size);
 };
 
+#ifdef HAS_LIBOPUS
 class OpusEncoder : public AudioEncoder {
   public:
     OpusEncoder(websocketpp::connection_hdl hdl, server *m_server, int samplerate);
@@ -59,5 +60,6 @@ class OpusEncoder : public AudioEncoder {
     int finish_encoder();
     int process(int32_t *data, size_t size);
 };
+#endif
 
 #endif

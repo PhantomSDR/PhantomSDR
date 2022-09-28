@@ -128,25 +128,24 @@ void broadcast_server::waterfall_loop(float *fft_power,
 
         // Iterate over each waterfall client and send each slice
         std::lock_guard lg(waterfall_slice_mtx[i]);
-        for (auto &it : waterfall_slices[i]) {
-            int l_idx = it.first.first;
-            int r_idx = it.first.second;
+        for (auto &[slice, data] : waterfall_slices[i]) {
+            auto &[l_idx, r_idx] = slice;
             // If the client is slow, avoid unnecessary buffering and
             // drop the packet
-            if (m_server.get_con_from_hdl(it.second->hdl)
+            if (m_server.get_con_from_hdl(data->hdl)
                     ->get_buffered_amount() <= 1000000) {
                 if (server_threads == 1) {
-                    waterfall_send(it.second, &fft_power_quantized[l_idx],
+                    waterfall_send(data, &fft_power_quantized[l_idx],
                                    r_idx - l_idx);
                 } else {
-                    if (!it.second->processing) {
-                        it.second->processing = 1;
+                    if (!data->processing) {
+                        data->processing = 1;
                         m_server.get_io_service().post(
-                            m_server.get_con_from_hdl(it.second->hdl)
+                            m_server.get_con_from_hdl(data->hdl)
                                 ->get_strand()
                                 ->wrap(std::bind(
                                     &broadcast_server::waterfall_send, this,
-                                    it.second, &fft_power_quantized[l_idx],
+                                    data, &fft_power_quantized[l_idx],
                                     r_idx - l_idx)));
                     }
                 }

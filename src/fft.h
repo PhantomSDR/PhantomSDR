@@ -20,6 +20,7 @@ enum fft_accelerator {
     CPU_FFTW,
     GPU_cuFFT,
     GPU_cuFFTZeroCopy,
+    GPU_cuFFTUnifiedMemory,
     GPU_clFFT,
 };
 
@@ -105,19 +106,20 @@ class FFTW : public FFT {
 class cuFFT : public FFT {
   public:
     cuFFT(size_t size, int nthreads);
-    virtual float *malloc(size_t size) = 0;
-    virtual void free(float *buf) = 0;
+    virtual float *malloc(size_t size);
+    virtual void free(float *buf);
     virtual int plan_c2c(direction d, int options);
     virtual int plan_r2c(int options);
     virtual int plan_c2r(int options);
-    virtual int get_cuda_ptrs() = 0;
-    virtual int execute() = 0;
+    virtual int get_cuda_ptrs();
+    virtual int execute();
     virtual ~cuFFT();
 
   protected:
     cufftType type;
     int cuda_direction;
     cufftHandle plan;
+    bool has_cuda_malloc;
     void *cuda_inbuf;
     void *cuda_outbuf;
 };

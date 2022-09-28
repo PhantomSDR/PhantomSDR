@@ -27,17 +27,15 @@ std::string broadcast_server::get_event_info() {
 
     if (show_other_users) {
         std::unique_lock lk(signal_changes_mtx);
-        for (auto &it : signal_changes) {
+        for (auto &[userid, range] : signal_changes) {
             rapidjson::Value new_range(rapidjson::kArrayType);
-            int l, r;
-            double m;
-            std::tie(l, m, r) = it.second;
+            auto &[l, m, r] = range;
             new_range.PushBack(rapidjson::Value(l).Move(), allocator);
             new_range.PushBack(rapidjson::Value(m).Move(), allocator);
             new_range.PushBack(rapidjson::Value(r).Move(), allocator);
 
             changes.AddMember(
-                rapidjson::Value(it.first.c_str(), allocator).Move(), new_range,
+                rapidjson::Value(userid.c_str(), allocator).Move(), new_range,
                 allocator);
         }
         signal_changes.clear();
@@ -63,15 +61,15 @@ std::string broadcast_server::get_initial_state_info() {
 
     rapidjson::Value changes(rapidjson::kObjectType);
 
-    for (auto &it : signal_slices) {
+    for (auto &[slice, data] : signal_slices) {
         rapidjson::Value new_range(rapidjson::kArrayType);
-        new_range.PushBack(rapidjson::Value(it.second->l).Move(), allocator);
-        new_range.PushBack(rapidjson::Value(it.second->audio_mid).Move(),
+        new_range.PushBack(rapidjson::Value(data->l).Move(), allocator);
+        new_range.PushBack(rapidjson::Value(data->audio_mid).Move(),
                            allocator);
-        new_range.PushBack(rapidjson::Value(it.second->r).Move(), allocator);
+        new_range.PushBack(rapidjson::Value(data->r).Move(), allocator);
 
         changes.AddMember(
-            rapidjson::Value(it.second->unique_id.c_str(), allocator).Move(),
+            rapidjson::Value(data->unique_id.c_str(), allocator).Move(),
             new_range, allocator);
     }
     d.AddMember("signal_list", changes, allocator);
