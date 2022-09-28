@@ -36,7 +36,7 @@ int FFTW::plan_c2c(direction d, int options) {
     inbuf = this->malloc(size * 2);
     outbuf = this->malloc(size * 4);
 
-    std::lock_guard lk(fftwf_planner_mutex);
+    std::scoped_lock lk(fftwf_planner_mutex);
     fftwf_plan_with_nthreads(nthreads);
     p = fftwf_plan_dft_1d(size, (fftwf_complex *)inbuf, (fftwf_complex *)outbuf,
                           d == FORWARD ? FFTW_FORWARD : FFTW_BACKWARD, options);
@@ -48,7 +48,7 @@ int FFTW::plan_r2c(int options) {
     inbuf = this->malloc(size * 2);
     outbuf = this->malloc(size * 4);
 
-    std::lock_guard lk(fftwf_planner_mutex);
+    std::scoped_lock lk(fftwf_planner_mutex);
     fftwf_plan_with_nthreads(nthreads);
     p = fftwf_plan_dft_r2c_1d(size, inbuf, (fftwf_complex *)outbuf, options);
     return 0;
@@ -59,7 +59,7 @@ int FFTW::plan_c2r(int options) {
     inbuf = this->malloc(size * 2);
     outbuf = this->malloc(size * 2);
 
-    std::lock_guard lk(fftwf_planner_mutex);
+    std::scoped_lock lk(fftwf_planner_mutex);
     fftwf_plan_with_nthreads(nthreads);
     p = fftwf_plan_dft_c2r_1d(size, (fftwf_complex *)inbuf, outbuf, options);
     return 0;

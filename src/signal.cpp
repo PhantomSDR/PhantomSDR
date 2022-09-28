@@ -55,7 +55,7 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
     d->audio_real_int16.resize(audio_fft_size);
     
     {
-        std::lock_guard lg(fftwf_planner_mutex);
+        std::scoped_lock lg(fftwf_planner_mutex);
         fftwf_plan_with_nthreads(1);
         d->p_complex = fftwf_plan_dft_1d(audio_fft_size, audio_fft_input,
                                          audio_complex_baseband, FFTW_BACKWARD,
@@ -75,13 +75,13 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
                                        std::placeholders::_2, d));
 
     if (show_other_users) {
-        std::unique_lock lk(signal_changes_mtx);
+        std::scoped_lock lk(signal_changes_mtx);
         signal_changes[d->unique_id] = {d->l, d->audio_mid, d->r};
     }
 
     // Default slice
     {
-        std::lock_guard lg(signal_slice_mtx);
+        std::scoped_lock lg(signal_slice_mtx);
         auto it = signal_slices.insert({{d->l, d->r}, d});
         d->it = it;
     }
@@ -89,11 +89,11 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
 void broadcast_server::on_close_signal(connection_hdl hdl,
                                        std::shared_ptr<conn_data> &d) {
     if (show_other_users) {
-        std::unique_lock lk(signal_changes_mtx);
+        std::scoped_lock lk(signal_changes_mtx);
         signal_changes[d->unique_id] = {-1, -1, -1};
     }
     {
-        std::unique_lock lk(signal_slice_mtx);
+        std::scoped_lock lk(signal_slice_mtx);
         signal_slices.erase(d->it);
     }
 }
@@ -305,7 +305,7 @@ void broadcast_server::signal_loop() {
     if (!is_real) {
         base_idx = fft_size / 2 + 1;
     }
-    std::lock_guard lg(signal_slice_mtx);
+    std::scoped_lock lg(signal_slice_mtx);
     // Send the apprioriate signal slice to the client
     for (auto &[slice, data] : signal_slices) {
         auto &[l_idx, r_idx] = slice;

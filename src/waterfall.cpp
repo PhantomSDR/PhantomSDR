@@ -35,7 +35,7 @@ void broadcast_server::on_open_waterfall(connection_hdl hdl) {
 
     int last_level = downsample_levels - 1;
     {
-        std::lock_guard lk(waterfall_slice_mtx[last_level]);
+        std::scoped_lock lk(waterfall_slice_mtx[last_level]);
         auto it =
             waterfall_slices[last_level].insert({{0, min_waterfall_fft}, d});
         d->it = it;
@@ -45,7 +45,7 @@ void broadcast_server::on_close_waterfall(connection_hdl hdl,
                                           std::shared_ptr<conn_data> &d) {
     int level = d->level;
     {
-        std::lock_guard lk(waterfall_slice_mtx[level]);
+        std::scoped_lock lk(waterfall_slice_mtx[level]);
         waterfall_slices[level].erase(d->it);
     }
 }
@@ -127,7 +127,7 @@ void broadcast_server::waterfall_loop(float *fft_power,
         }
 
         // Iterate over each waterfall client and send each slice
-        std::lock_guard lg(waterfall_slice_mtx[i]);
+        std::scoped_lock lg(waterfall_slice_mtx[i]);
         for (auto &[slice, data] : waterfall_slices[i]) {
             auto &[l_idx, r_idx] = slice;
             // If the client is slow, avoid unnecessary buffering and

@@ -26,7 +26,7 @@ std::string broadcast_server::get_event_info() {
     rapidjson::Value changes(rapidjson::kObjectType);
 
     if (show_other_users) {
-        std::unique_lock lk(signal_changes_mtx);
+        std::scoped_lock lk(signal_changes_mtx);
         for (auto &[userid, range] : signal_changes) {
             rapidjson::Value new_range(rapidjson::kArrayType);
             auto &[l, m, r] = range;

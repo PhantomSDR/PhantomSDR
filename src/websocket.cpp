@@ -134,7 +134,7 @@ void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg, s
             }
             // Change the data structures to reflect the changes
             {
-                std::unique_lock lk1(signal_slice_mtx);
+                std::scoped_lock lk1(signal_slice_mtx);
                 auto it = d->it;
                 
                 auto node = signal_slices.extract(it);
@@ -148,7 +148,7 @@ void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg, s
                 d->audio_mid = new_m;
 
                 if (show_other_users) {
-                    std::unique_lock lk3(signal_changes_mtx);
+                    std::scoped_lock lk3(signal_changes_mtx);
                     signal_changes[d->unique_id] = {
                         new_l, new_m, new_r};
                 }
@@ -192,12 +192,12 @@ void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg, s
             auto it = d->it;
             int level = d->level;
             auto node = ([&] {
-                std::unique_lock lkl1(waterfall_slice_mtx[level]);
+                std::scoped_lock lkl1(waterfall_slice_mtx[level]);
                 return waterfall_slices[level].extract(it);
             })();
 
             {
-                std::unique_lock lkl2(waterfall_slice_mtx[new_level]);
+                std::scoped_lock lkl2(waterfall_slice_mtx[new_level]);
                 node.key() = {new_l, new_r};
                 it = waterfall_slices[new_level].insert(std::move(node));
             }
