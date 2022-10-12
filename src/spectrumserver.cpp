@@ -19,7 +19,7 @@ namespace po = boost::program_options;
 #include <toml++/toml.h>
 
 broadcast_server::broadcast_server(
-    std::unique_ptr<SampleConverter> reader,
+    std::unique_ptr<SampleConverter> reader, toml::parse_result& config,
     std::unordered_map<std::string, int64_t> &int_config,
     std::unordered_map<std::string, std::string> &str_config)
     : reader{std::move(reader)}, fft_size{(int)int_config["fft_size"]},
@@ -31,6 +31,10 @@ broadcast_server::broadcast_server(
       m_docroot{str_config["htmlroot"]}, running{false},
       show_other_users{int_config["otherusers"] > 0},
       server_threads{(int)int_config["threads"]}, frame_num{0} {
+
+    limit_audio = config["limits"]["audio"].value_or(1000);
+    limit_waterfall = config["limits"]["waterfall"].value_or(1000);
+    limit_events = config["limits"]["events"].value_or(1000);
 
     // Set the parameters correct for real and IQ input
     // For IQ signal Leftmost frequency of IQ signal needs to be shifted left by
@@ -170,7 +174,7 @@ void broadcast_server::run(uint16_t port) {
     m_server.set_listen_backlog(8192);
     m_server.set_reuse_addr(true);
     try {
-    m_server.listen(port);
+        m_server.listen(port);
     } catch (...) { // Listen on IPv4 only if IPv6 is not supported
         m_server.listen(websocketpp::lib::asio::ip::tcp::v4(), port);
     }
@@ -209,8 +213,8 @@ void broadcast_server::stop() {
     for (auto &[slice, data] : signal_slices) {
         websocketpp::lib::error_code ec;
         try {
-            m_server.close(data->hdl,
-                           websocketpp::close::status::going_away, "", ec);
+            m_server.close(data->hdl, websocketpp::close::status::going_away,
+                           "", ec);
         } catch (...) {
         }
     }
@@ -258,7 +262,7 @@ int main(int argc, char **argv) {
     int_config["port"] = config["server"]["port"].value_or(9002);
     str_config["host"] = config["server"]["host"].value_or("0.0.0.0");
     int_config["threads"] = config["server"]["threads"].value_or(1);
-
+     
     std::optional<int> sps = config["input"]["sps"].value<int>();
     if (!sps.has_value()) {
         std::cout << "Missing sample rate" << std::endl;
@@ -349,7 +353,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    broadcast_server server(std::move(driver), int_config, str_config);
+    broadcast_server server(std::move(driver), config, int_config, str_config);
     g_signal = &server;
     std::signal(SIGINT, [](int) { g_signal->stop(); });
     server.run(int_config["port"]);

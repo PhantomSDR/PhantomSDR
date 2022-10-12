@@ -137,6 +137,7 @@ typedef std::set<connection_hdl, std::owner_less<connection_hdl>>
 class broadcast_server {
   public:
     broadcast_server(std::unique_ptr<SampleConverter> reader,
+                     toml::parse_result& config,
                      std::unordered_map<std::string, int64_t> &int_config,
                      std::unordered_map<std::string, std::string> &str_config);
     void run(uint16_t port);
@@ -217,6 +218,10 @@ class broadcast_server {
     std::string default_mode_str;
     demodulation_mode default_mode;
 
+    // Limits
+    int limit_audio;
+    int limit_waterfall;
+    int limit_events;
     // Tracks which clients wants which signal
     signal_list signal_slices;
     std::mutex signal_slice_mtx;
