@@ -169,7 +169,11 @@ void broadcast_server::run(uint16_t port) {
     running = true;
     m_server.set_listen_backlog(8192);
     m_server.set_reuse_addr(true);
+    try {
     m_server.listen(port);
+    } catch (...) { // Listen on IPv4 only if IPv6 is not supported
+        m_server.listen(websocketpp::lib::asio::ip::tcp::v4(), port);
+    }
     m_server.start_accept();
     fft_thread = std::thread(&broadcast_server::fft_task, this);
     // signal_thread = std::thread(&broadcast_server::signal_task, this);

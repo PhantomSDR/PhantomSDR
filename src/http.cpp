@@ -70,7 +70,7 @@ void broadcast_server::on_http(connection_hdl hdl) {
     response.reserve(file.tellg());
     file.seekg(0, std::ios::beg);
 
-    response.assign((std::istreambuf_iterator<char>(file)),
+    response.assign(std::istreambuf_iterator<char>(file),
                     std::istreambuf_iterator<char>());
 
     std::set<std::string> encodings;
