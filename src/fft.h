@@ -1,6 +1,7 @@
 #ifndef FFT_H
 #define FFT_H
 
+#include <functional>
 #include <mutex>
 
 #ifdef CUFFT
@@ -8,6 +9,7 @@
 #endif
 
 #ifdef CLFFT
+#include <CL/cl.hpp>
 #include <clFFT.h>
 #endif
 
@@ -19,15 +21,13 @@ extern std::mutex fftwf_planner_mutex;
 enum fft_accelerator {
     CPU_FFTW,
     GPU_cuFFT,
-    GPU_cuFFTZeroCopy,
-    GPU_cuFFTUnifiedMemory,
     GPU_clFFT,
 };
 
 class FFT {
   public:
     enum direction { FORWARD, BACKWARD };
-    FFT(size_t size, int nthreads);
+    FFT(size_t size, int nthreads, int downsample_levels);
     virtual float *malloc(size_t size) = 0;
     virtual void free(float *buf) = 0;
     virtual int plan_c2c(direction d, int options) = 0;
@@ -37,20 +37,28 @@ class FFT {
     virtual void set_size(size_t size);
     virtual float *get_input_buffer();
     virtual float *get_output_buffer();
+    virtual int8_t *get_quantized_buffer();
+    virtual int load_real_input(float *a1, float *a2) = 0;
+    virtual int load_complex_input(float *a1, float *a2) = 0;
     virtual int execute() = 0;
-    virtual ~FFT() {}
+    virtual ~FFT();
 
   protected:
     size_t size;
     int nthreads;
+    int downsample_levels;
     int additional_size;
+    size_t outbuf_len;
+    float *windowbuf;
     float *inbuf;
     float *outbuf;
+    float *powerbuf;
+    int8_t *quantizedbuf;
 };
 
 class noFFT : public FFT {
   public:
-    noFFT(size_t size, int nthreads) : FFT(size, nthreads) {}
+    noFFT(size_t size, int nthreads) : FFT(size, nthreads, 1) {}
     virtual float *malloc(size_t size) {
         return (float *)::malloc(sizeof(float) * size);
     }
@@ -89,12 +97,14 @@ class errorFFT : public noFFT {
 
 class FFTW : public FFT {
   public:
-    FFTW(size_t size, int nthreads);
+    FFTW(size_t size, int nthreads, int downsample_levels);
     virtual float *malloc(size_t size);
     virtual void free(float *buf);
     virtual int plan_c2c(direction d, int options);
     virtual int plan_r2c(int options);
     virtual int plan_c2r(int options);
+    virtual int load_real_input(float *a1, float *a2);
+    virtual int load_complex_input(float *a1, float *a2);
     virtual int execute();
     virtual ~FFTW();
 
@@ -105,13 +115,14 @@ class FFTW : public FFT {
 #ifdef CUFFT
 class cuFFT : public FFT {
   public:
-    cuFFT(size_t size, int nthreads);
+    cuFFT(size_t size, int nthreads, int downsample_levels);
     virtual float *malloc(size_t size);
     virtual void free(float *buf);
     virtual int plan_c2c(direction d, int options);
     virtual int plan_r2c(int options);
     virtual int plan_c2r(int options);
-    virtual int get_cuda_ptrs();
+    virtual int load_real_input(float *a1, float *a2);
+    virtual int load_complex_input(float *a1, float *a2);
     virtual int execute();
     virtual ~cuFFT();
 
@@ -120,53 +131,42 @@ class cuFFT : public FFT {
     int cuda_direction;
     cufftHandle plan;
     bool has_cuda_malloc;
-    void *cuda_inbuf;
-    void *cuda_outbuf;
-};
-
-class cuFFTUnifiedMemory : public cuFFT {
-  public:
-    cuFFTUnifiedMemory(size_t size, int nthreads);
-    virtual float *malloc(size_t size);
-    virtual void free(float *buf);
-    virtual int get_cuda_ptrs();
-    virtual int execute();
-    virtual ~cuFFTUnifiedMemory();
-};
-
-class cuFFTZeroCopy : public cuFFT {
-  public:
-    cuFFTZeroCopy(size_t size, int nthreads);
-    virtual float *malloc(size_t size);
-    virtual void free(float *buf);
-    virtual int get_cuda_ptrs();
-    virtual int execute();
-    virtual ~cuFFTZeroCopy();
+    float *cuda_windowbuf;
+    float *cuda_inbuf;
+    float *cuda_outbuf;
+    float *cuda_powerbuf;
+    int8_t *cuda_quantizedbuf;
 };
 #endif
 
 #ifdef CLFFT
 class clFFT : public FFT {
   public:
-    clFFT(size_t size, int nthreads);
+    clFFT(size_t size, int nthreads, int downsample_levels);
     virtual float *malloc(size_t size);
     virtual void free(float *buf);
     virtual int plan_c2c(direction d, int options);
     virtual int plan_r2c(int options);
     virtual int plan_c2r(int options);
+    virtual int load_real_input(float *a1, float *a2);
+    virtual int load_complex_input(float *a1, float *a2);
     virtual int execute();
     virtual ~clFFT();
 
   protected:
-    cl_int err;
-    cl_platform_id platform;
-    cl_device_id device;
-    cl_context_properties props[3];
-    cl_context ctx;
-    cl_command_queue queue;
-    float *X;
-    cl_event event = NULL;
+    cl::Platform platform;
+    cl::Device device;
+    cl::Context context;
+    cl::CommandQueue queue;
 
+    cl::Program::Sources sources;
+    cl::Program program;
+
+    std::function<cl::make_kernel<cl::Buffer, cl::Buffer>::type_> window_real;
+    std::function<cl::make_kernel<cl::Buffer, cl::Buffer>::type_> window_complex;
+    std::function<cl::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_float, cl_int, cl_int>::type_> power_and_quantize;
+    std::function<cl::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_int, cl_int>::type_> half_and_quantize;
+    
     clfftPlanHandle planHandle;
     clfftDim dim;
     size_t clLengths[1];
@@ -174,8 +174,11 @@ class clFFT : public FFT {
 
     clfftLayout inlayout;
     clfftLayout outlayout;
-    cl_mem cl_inbuf;
-    cl_mem cl_outbuf;
+    cl::Buffer cl_windowbuf;
+    cl::Buffer cl_inbuf;
+    cl::Buffer cl_outbuf;
+    cl::Buffer cl_powerbuf;
+    cl::Buffer cl_quantizedbuf;
     clfftDirection d;
 };
 #endif

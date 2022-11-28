@@ -10,34 +10,25 @@
 
 // Main FFT loop to process input samples
 void broadcast_server::fft_task() {
-    float *input_buffer;
 
     // This is the buffer where it converts to a float
-    float *fft_input_buffer;
 
-    float *fft_window;
+    std::unique_ptr<FFT> fft = std::move(this->fft);
 
-    std::unique_ptr<FFT> &fft = this->fft;
-
-    // Buffers are bigger than needed, to prevent overflow errors
-    input_buffer = new (std::align_val_t(32)) float[fft_size * 2];
-    fft_window = new (std::align_val_t(32)) float[fft_size];
-
-    // Power levels to send to the client
-    fft_power = new (std::align_val_t(32)) float[fft_size];
-    fft_power_scratch = new (std::align_val_t(32)) float[fft_size];
-    fft_power_quantized_full = new (std::align_val_t(32)) int8_t[fft_size * 2];
-
-    build_hann_window(fft_window, fft_size);
+    // Twice as many floats if it is complex
+    float *input_buffers[3];
+    int input_buffer_size = fft_size / 2 * (2 - is_real);
+    int input_buffer_idx = 0;
+    input_buffers[0] = fft->malloc(input_buffer_size);
+    input_buffers[1] = fft->malloc(input_buffer_size);
+    input_buffers[2] = fft->malloc(input_buffer_size);
 
     // FFT planning
     if (is_real) {
-        fft->plan_r2c(FFTW_MEASURE);
+        fft->plan_r2c(FFTW_ESTIMATE | FFTW_DESTROY_INPUT);
     } else {
-        fft->plan_c2c(FFT::FORWARD, FFTW_MEASURE);
+        fft->plan_c2c(FFT::FORWARD, FFTW_MEASURE | FFTW_DESTROY_INPUT);
     }
-
-    fft_input_buffer = fft->get_input_buffer();
     fft_buffer = (fftwf_complex *)fft->get_output_buffer();
 
     // Target fps is 10, *2 since 50% overlap
@@ -46,115 +37,49 @@ void broadcast_server::fft_task() {
 
     MovingAverage<double> sps_measured(60);
     auto prev_data = std::chrono::steady_clock::now();
+
     auto signal_loop_fn = std::bind(&broadcast_server::signal_loop, this);
-    auto waterfall_loop_fn =
-        std::bind(&broadcast_server::waterfall_loop, this, fft_power,
-                  fft_power_quantized_full, fft_power_scratch);
+    auto waterfall_loop_fn = std::bind(&broadcast_server::waterfall_loop, this,
+                                       fft->get_quantized_buffer());
+
+    std::future<void> buffer_read = std::async(std::launch::async, [] {});
 
     while (running) {
         // Read, convert and scale the input
         // 50% overlap is hardcoded for favourable downconverter properties
-        int second_half = frame_num % 2;
+        buffer_read.wait();
+        float *buf0 = input_buffers[input_buffer_idx];
+        float *buf1 = input_buffers[(input_buffer_idx + 1) % 3];
+        float *buf2 = input_buffers[(input_buffer_idx + 2) % 3];
         if (is_real) {
+            // Read into buf2 asynchronously
+            buffer_read = std::async(std::launch::async,
+                                     [buf2, fft_size = fft_size, this] {
+                                         reader->read(buf2, fft_size / 2);
+                                     });
 
-            reader->read(&input_buffer[second_half * fft_size / 2],
-                         fft_size / 2);
-            // Copy and window the signal
-            if (second_half) {
-                /* Equivalent code:
-                 * for(int i = 0;i < fft_size; i++) {
-                 *   fft_input_buffer[i] = input_buffer[i] * fft_window[i];
-                 * }
-                 */
-                volk_32f_x2_multiply_32f(fft_input_buffer, input_buffer,
-                                         fft_window, fft_size);
-            } else {
-                /* Equivalent code:
-                 * for(int i = 0;i < fft_size / 2; i++) {
-                 *     fft_input_buffer[i] = input_buffer[i + fft_size / 2] *
-                 * fft_window[i];
-                 * }
-                 * for(int i = 0;i < fft_size / 2; i++) {
-                 *     fft_input_buffer[i + fft_size / 2] = input_buffer[i] *
-                 * fft_window[i + fft_size / 2];
-                 * }
-                 */
-                volk_32f_x2_multiply_32f(fft_input_buffer,
-                                         &input_buffer[fft_size / 2],
-                                         fft_window, fft_size / 2);
-                volk_32f_x2_multiply_32f(
-                    &fft_input_buffer[fft_size / 2], input_buffer,
-                    &fft_window[fft_size / 2], fft_size / 2);
-            }
+            fft->load_real_input(buf0, buf1);
         } else {
-            // IQ signal has twice the number of floats
-            if (second_half) {
-                /* Equivalent code:
-                 * for(int i = 0;i < fft_size; i++) {
-                 *     fft_input_buffer[i * 2] = input_buffer[i * 2] *
-                 * fft_window[i]; fft_input_buffer[i * 2 + 1] = input_buffer[i *
-                 * 2 + 1] * fft_window[i];
-                 * }
-                 */
-                // Window the half that is not modified
-                volk_32fc_32f_multiply_32fc((lv_32fc_t *)fft_input_buffer,
-                                            (lv_32fc_t *)input_buffer,
-                                            fft_window, fft_size / 2);
-                // Do in chunks of 4096 to have better cache performance
-                for (int i = 0; i < fft_size; i += 4096) {
-                    reader->read(&input_buffer[fft_size + i], 4096);
-                    volk_32fc_32f_multiply_32fc(
-                        (lv_32fc_t *)&fft_input_buffer[fft_size + i],
-                        (lv_32fc_t *)&input_buffer[fft_size + i],
-                        &fft_window[fft_size / 2 + i / 2], 4096 / 2);
-                }
-            } else {
-
-                /* Equivalent code:
-                 * for(int i = 0;i < fft_size / 2; i++) {
-                 *    fft_input_buffer[i * 2] = input_buffer[(i + fft_size / 2)
-                 * * 2] * fft_window[i]; fft_input_buffer[i * 2 + 1] =
-                 * input_buffer[(i + fft_size / 2) * 2 + 1] * fft_window[i];
-                 * }
-                 * for(int i = 0;i < fft_size / 2; i++) {
-                 *    fft_input_buffer[(i + fft_size / 2) * 2] = input_buffer[i
-                 * * 2] * fft_window[i + fft_size / 2]; fft_input_buffer[(i +
-                 * fft_size / 2) * 2 + 1] = input_buffer[i * 2 + 1] *
-                 * fft_window[i + fft_size / 2];
-                 * }
-                 * volk_32fc_32f_multiply_32fc((lv_32fc_t*)&fft_input_buffer[fft_size],
-                 * (lv_32fc_t*)input_buffer, &fft_window[fft_size / 2], fft_size
-                 * / 2);
-                 */
-
-                // Do in chunks of 4096 to have better cache
-                for (int i = 0; i < fft_size; i += 4096) {
-                    reader->read(&input_buffer[i], 4096);
-                    volk_32fc_32f_multiply_32fc(
-                        (lv_32fc_t *)&fft_input_buffer[fft_size + i],
-                        (lv_32fc_t *)&input_buffer[i],
-                        &fft_window[fft_size / 2 + i / 2], 4096 / 2);
-                }
-                // Window the half that is not modified
-                volk_32fc_32f_multiply_32fc(
-                    (lv_32fc_t *)fft_input_buffer,
-                    (lv_32fc_t *)&input_buffer[fft_size], fft_window,
-                    fft_size / 2);
-            }
+            // IQ data has twice as many floats
+            buffer_read = std::async(std::launch::async,
+                                     [buf2, fft_size = fft_size, this] {
+                                         reader->read(buf2, fft_size);
+                                     });
+            fft->load_complex_input(buf0, buf1);
         }
 
-        if (signal_slices.size() + std::accumulate(waterfall_slices.begin(),
+        input_buffer_idx = (input_buffer_idx + 1) % 3;
+        // If no users, save CPU and skip the FFT
+        /*if (signal_slices.size() + std::accumulate(waterfall_slices.begin(),
                                                    waterfall_slices.end(), 0,
                                                    [](int val, signal_list &l) {
                                                        return val + l.size();
                                                    }) ==
             0) {
             continue;
-        }
+        }*/
+
         fft->execute();
-        // Normalize the power by the number of bins
-        volk_32f_s32f_normalize((float *)fft_buffer, fft_size,
-                                fft_result_size * 2);
         if (!is_real) {
 
             // If the user requested a range near the 0 frequency,
@@ -177,16 +102,16 @@ void broadcast_server::fft_task() {
         }
         frame_num++;
 
-        auto cur_data = std::chrono::steady_clock::now();
+        /*auto cur_data = std::chrono::steady_clock::now();
         std::chrono::duration<double> diff_time = cur_data - prev_data;
         sps_measured.insert(diff_time.count());
         prev_data = cur_data;
         if (frame_num % 10 == 0) {
             // std::cout<<"SPS: "<<std::fixed<<(double)(fft_size / 2) /
             // sps_measured.getAverage()<<std::endl;
-        }
+        }*/
     }
-
-    operator delete[](input_buffer, std::align_val_t(32));
-    operator delete[](fft_window, std::align_val_t(32));
+    fft->free(input_buffers[0]);
+    fft->free(input_buffers[1]);
+    fft->free(input_buffers[2]);
 }

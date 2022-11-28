@@ -8,7 +8,9 @@
 #include "FLAC++/encoder.h"
 #include "FLAC++/metadata.h"
 
+#ifdef HAS_LIBOPUS
 #include <opus/opus.h>
+#endif
 
 #include "websocket.h"
 

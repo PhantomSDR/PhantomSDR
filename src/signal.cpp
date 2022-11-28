@@ -27,7 +27,7 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
             encoder->set_streamable_subset(true);
             encoder->init();
             d->encoder = std::move(encoder);
-        } 
+        }
 #ifdef HAS_LIBOPUS
         else if (audio_compression == AUDIO_OPUS) {
             std::unique_ptr<OpusEncoder> encoder =
@@ -53,7 +53,7 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
     d->audio_real.resize(audio_fft_size);
     d->audio_real_prev.resize(audio_fft_size);
     d->audio_real_int16.resize(audio_fft_size);
-    
+
     {
         std::scoped_lock lg(fftwf_planner_mutex);
         fftwf_plan_with_nthreads(1);
@@ -157,17 +157,8 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
         } else if (demodulation == AM || demodulation == FM) {
             // For AM, copy the bins to the complex baseband frequencies
             memset(audio_fft_input, 0, sizeof(fftwf_complex) * audio_fft_size);
-            // int positive_bins = std::max(0, audio_r - audio_m);
             int negative_bins = std::max(0, audio_m - audio_l);
             int negative_bin_start = audio_fft_size - negative_bins;
-            /*for (int i = 0; i < positive_bins; i++) {
-                audio_fft_input[i][0] = buf[negative_bins + i][0];
-                audio_fft_input[i][1] = buf[negative_bins + i][1];
-            }
-            for (int i = 0; i < negative_bins; i++) {
-                audio_fft_input[negative_bin_start + i][0] = buf[i][0];
-                audio_fft_input[negative_bin_start + i][1] = buf[i][1];
-            }*/
             for (int i = audio_l; i < audio_r; i++) {
                 int arr_idx = i - audio_l;
                 if (arr_idx >= audio_fft_size) {
@@ -210,30 +201,20 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
                 }
             }
         }
+
         // On every other frame, the audio waveform is inverted due to the 50%
         // overlap This only happens when downconverting by either even or odd
         // bins, depending on modulation
-        // std::cout<<"isflip frame: "<<frame_num<<" audio_m: "<<audio_m<<"
-        // is_real: " <<is_real<<" demodulation: "<< demodulation<<" cond 1:
-        // "<<(audio_m % 2 == 0 && !is_real)<<" cond 2: "<<(audio_m % 2 == 1 &&
-        // is_real)<< std::endl;
         if (demodulation == USB && frame_num % 2 == 1 &&
             ((audio_m % 2 == 0 && !is_real) || (audio_m % 2 == 1 && is_real))) {
             for (int i = 0; i < audio_fft_size; i++) {
                 audio_real[i] = -audio_real[i];
             }
-            /*std::cout << "flip 1 audio_m: " << audio_m
-                      << " is_real: " << is_real
-                      << " demodulation: " << demodulation << std::endl;*/
         } else if (demodulation == LSB && frame_num % 2 == 1 &&
-                   audio_m % 2 == 0) {
+                   ((audio_m % 2 == 1 && !is_real) || (audio_m % 2 == 0 && is_real))) {
             for (int i = 0; i < audio_fft_size; i++) {
                 audio_real[i] = -audio_real[i];
             }
-            /*std::cout << "frame " << frame_num << " flip 2 audio_m: " <<
-               audio_m
-                      << " is_real: " << is_real
-                      << " demodulation: " << demodulation << std::endl;*/
         }
 
         // Overlap and add the audio waveform, due to the 50% overlap
@@ -250,7 +231,6 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
         }
 
         // DC removal, average over 60 consecutive bins for a better estimate of
-        // DC
         cur_dc_sum /= audio_fft_size / 2;
         d->dc_history.insert(cur_dc_sum);
         float dc_scale = d->dc_history.getAverage();
@@ -266,13 +246,11 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
         cur_agc_sum /= audio_fft_size / 2;
         d->agc_history.update(cur_agc_sum);
         float agc_scale = sqrt(d->agc_history.getValue());
-        // std::cout<<"DC scale: "<<dc_scale<<" AGC scale: "<<agc_scale<<"
-        // Current power: "<<cur_agc_sum<<std::endl;
+
         // Quantize into 16 bit audio to save bandwidth
         for (int i = 0; i < audio_fft_size / 2; i++) {
             audio_real_int16[i] =
                 ((audio_real[i] / agc_scale * 65536 / 32 + 32768.5) - 32768);
-            // audio_real_int16[i] &= 0xFFFF;
         }
 
         // Copy the half to add in the next frame
@@ -282,14 +260,8 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
         // Set audio details
         d->encoder->set_data(audio_l, d->audio_mid, audio_r, average_power);
 
-        /*for (int i = 0; i < audio_fft_size / 2; i++) {
-            printf("%08X ", audio_real_int16[i]);
-        }
-        std::cout << std::endl;*/
-        // Compress into FLAC
+        // Encode audio and send it off
         d->encoder->process(audio_real_int16.data(), audio_fft_size / 2);
-        // m_server.send(hdl, audio_real_int16, audio_fft_size * 2,
-        // websocketpp::frame::opcode::binary);
 
         // Increment the frame number
         d->frame_num++;

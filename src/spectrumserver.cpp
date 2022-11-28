@@ -6,11 +6,6 @@
 #include <cstdio>
 #include <iostream>
 
-#ifdef CUFFT
-#include <cuda.h>
-#include <cuda_runtime_api.h>
-#endif
-
 #include <boost/algorithm/string.hpp>
 
 #include <boost/program_options.hpp>
@@ -118,34 +113,29 @@ broadcast_server::broadcast_server(
         std::cout << "Using OpenCL" << std::endl;
     }
 
-    if (accelerator == GPU_cuFFT) {
-#ifdef CUFFT
-        int count;
-        cudaGetDeviceCount(&count);
-        if (!count) {
-            std::cout << "No CUDA GPUs found" << std::endl;
-            std::exit(0);
-        }
-        fft = std::make_unique<cuFFT>(fft_size, fft_threads);
-#else
-        throw "CUDA support is not compiled in";
-#endif
-    } else if (accelerator == GPU_clFFT) {
-#ifdef CLFFT
-        fft = std::make_unique<clFFT>(fft_size, fft_threads);
-#else
-        throw "OpenCL support is not compiled in";
-#endif
-    } else {
-        fft = std::make_unique<FFTW>(fft_size, fft_threads);
-    }
-
     // Calculate number of downsampling levels for fft
     downsample_levels = 0;
     for (int cur_fft = fft_result_size; cur_fft >= min_waterfall_fft;
          cur_fft /= 2) {
         downsample_levels++;
     }
+
+    if (accelerator == GPU_cuFFT) {
+#ifdef CUFFT
+        fft = std::make_unique<cuFFT>(fft_size, fft_threads, downsample_levels);
+#else
+        throw "CUDA support is not compiled in";
+#endif
+    } else if (accelerator == GPU_clFFT) {
+#ifdef CLFFT
+        fft = std::make_unique<clFFT>(fft_size, fft_threads, downsample_levels);
+#else
+        throw "OpenCL support is not compiled in";
+#endif
+    } else {
+        fft = std::make_unique<FFTW>(fft_size, fft_threads, downsample_levels);
+    }
+    fft->set_output_additional_size(audio_max_fft_size);
 
     // Initialize the websocket server
     m_server.init_asio();
@@ -154,9 +144,6 @@ broadcast_server::broadcast_server(
 
     m_server.set_open_handler(
         std::bind(&broadcast_server::on_open, this, std::placeholders::_1));
-    // m_server.set_close_handler(bind(&broadcast_server::on_close, this,
-    // ::_1)); m_server.set_message_handler(bind(&broadcast_server::on_message,
-    // this, ::_1, ::_2));
     m_server.set_http_handler(
         std::bind(&broadcast_server::on_http, this, std::placeholders::_1));
 
@@ -180,8 +167,7 @@ void broadcast_server::run(uint16_t port) {
     }
     m_server.start_accept();
     fft_thread = std::thread(&broadcast_server::fft_task, this);
-    // signal_thread = std::thread(&broadcast_server::signal_task, this);
-    // waterfall_thread = std::thread(&broadcast_server::waterfall_task, this);
+
     set_event_timer();
 
     if (server_threads == 1) {
@@ -196,12 +182,6 @@ void broadcast_server::run(uint16_t port) {
         }
     }
     fft_thread.join();
-    // signal_thread.join();
-    // waterfall_thread.join();
-
-    operator delete[](fft_power, std::align_val_t(32));
-    operator delete[](fft_power_scratch, std::align_val_t(32));
-    operator delete[](fft_power_quantized_full, std::align_val_t(32));
 }
 void broadcast_server::stop() {
     running = false;
@@ -236,6 +216,7 @@ void broadcast_server::stop() {
         }
     }
 }
+
 broadcast_server *g_signal;
 
 int main(int argc, char **argv) {

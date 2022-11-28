@@ -178,8 +178,7 @@ class broadcast_server {
     void on_open_waterfall(connection_hdl hdl);
     void on_close_waterfall(connection_hdl hdl, std::shared_ptr<conn_data> &d);
     void waterfall_send(std::shared_ptr<conn_data> &d, int8_t *buf, int len);
-    void waterfall_loop(float *fft_power, int8_t *fft_power_quantized_full,
-                        float *fft_power_scratch);
+    void waterfall_loop(int8_t *fft_power_quantized);
     void waterfall_task();
 
   private:
@@ -240,10 +239,6 @@ class broadcast_server {
     fftwf_complex *fft_buffer;
     std::shared_mutex fft_mutex;
     std::condition_variable_any fft_processed;
-
-    float *fft_power;
-    int8_t *fft_power_quantized_full;
-    float *fft_power_scratch;
 
     int waterfall_processing;
     int signal_processing;

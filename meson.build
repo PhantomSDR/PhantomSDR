@@ -8,7 +8,7 @@ project(
 )
 
 add_project_arguments('-march=native', language: 'cpp')
-add_project_arguments('-g', language: 'cpp')
+add_project_arguments('-ggdb3', language: 'cpp')
 add_project_arguments(['-Wall','-Wpedantic'], language: 'cpp')
 #add_project_link_arguments(['-rdynamic', '-no-pie'], language: 'cpp')
 
@@ -22,7 +22,7 @@ fftw3f_deps = [dependency('fftw3f')]
 fftw3f_deps += cpp.find_library('fftw3f_threads')
 
 
-boost_dep = dependency('boost', modules : ['system', 'program_options', 'iostreams', 'json'])
+boost_dep = dependency('boost', modules : ['system', 'program_options', 'iostreams'])
 rapidjson_dep = dependency('RapidJSON')
 
 codec_deps = []
@@ -61,10 +61,17 @@ clfft_dep = dependency('clFFT', required : false)
 
 stdcppfs_dep = cpp.find_library('stdc++fs', required : false)
 
-if cuda_dep.found() and cufft_dep.found()
+cuda_srcs = []
+
+if add_languages('cuda', required : false) and cuda_dep.found() and cufft_dep.found()
+    cuda = import('unstable-cuda')
     fftw3f_deps += cuda_dep
     fftw3f_deps += cufft_dep
-    add_project_arguments('-DCUFFT', language : 'cpp')
+    add_project_arguments('-DCUFFT', language : ['cpp', 'cuda'] )
+    add_project_arguments(cuda.nvcc_arch_flags(meson.get_compiler('cuda'), 'All'), language: 'cuda')
+    add_project_arguments('-O3', language: 'cuda')
+    add_project_arguments('-Xptxas=-v', language: 'cuda')
+    cuda_srcs += files('src/fft_cuda.cu')
 endif
 
 if opencl_dep.found() and clfft_dep.found()
@@ -93,6 +100,7 @@ srcs = [
     'src/compression.cpp',
     
 ]
+srcs += cuda_srcs
 
 executable(
     'spectrumserver',

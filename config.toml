@@ -4,6 +4,11 @@ html_root="html-svelte/dist/" # HTML files to be hosted
 otherusers=1 # Send where other users are listening, 0 to disable
 threads=8
 
+[limits]
+audio=1000
+waterfall=1000
+events=1000
+
 [input]
 sps=20000000 # Input Sample Rate
 fft_size=1048576 # FFT bins

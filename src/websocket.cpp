@@ -15,6 +15,8 @@ void broadcast_server::on_open(connection_hdl hdl) {
         on_open_signal(hdl, SIGNAL);
     } else if (path == "/waterfall") {
         on_open_waterfall(hdl);
+    } else if (path == "/waterfall_raw") {
+        //on_open_waterfall_raw(hdl);
     } else if (path == "/events") {
         on_open_events(hdl);
     } else {
@@ -89,25 +91,23 @@ void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg, s
     if (document.HasParseError()) {
         return;
     }
-    {
-        std::ostringstream command_log;
-        std::string type_str;
-        if (type == SIGNAL) {
-            type_str = "Signal";
-        } else if (type == AUDIO) {
-            type_str = "Audio";
-        } else if (type == WATERFALL) {
-            type_str = "Waterfall";
-        } else if (type == EVENTS) {
-            type_str = "Events";
-        }
-        command_log << ip;
-        command_log << " [" << type_str
-                    << " User: " << d->user_id << "]";
-        command_log << " Message: " + payload;
-        m_server.get_alog().write(websocketpp::log::alevel::app,
-                                  command_log.str());
+    std::ostringstream command_log;
+    std::string type_str;
+    if (type == SIGNAL) {
+        type_str = "Signal";
+    } else if (type == AUDIO) {
+        type_str = "Audio";
+    } else if (type == WATERFALL) {
+        type_str = "Waterfall";
+    } else if (type == EVENTS) {
+        type_str = "Events";
     }
+    command_log << ip;
+    command_log << " [" << type_str
+                << " User: " << d->user_id << "]";
+    command_log << " Message: " + payload;
+    m_server.get_alog().write(websocketpp::log::alevel::app,
+                                command_log.str());
 
     if (!document.HasMember("cmd")) {
         return;

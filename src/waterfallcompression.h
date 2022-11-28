@@ -3,8 +3,10 @@
 
 #include "websocket.h"
 
+#ifdef HAS_LIBAOM
 #include "aom/aom_encoder.h"
 #include "aom/aomcx.h"
+#endif
 
 #define WATERFALL_COALESCE 8
 
