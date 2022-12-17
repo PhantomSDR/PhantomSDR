@@ -1,7 +1,12 @@
-[wrap-git]
-url = https://github.com/zaphoyd/websocketpp.git
-revision = head
-patch_directory = websocketpp
+[wrap-file]
+directory = websocketpp-0.8.2
+source_url = https://github.com/zaphoyd/websocketpp/archive/refs/tags/0.8.2.tar.gz
+source_filename = 0.8.2.tar.gz
+source_hash = 6ce889d85ecdc2d8fa07408d6787e7352510750daa66b5ad44aacb47bea76755
+patch_filename = websocketpp_0.8.2-1_patch.zip
+patch_url = https://wrapdb.mesonbuild.com/v2/websocketpp_0.8.2-1/get_patch
+patch_hash = 5212b61e11253d191728ec2072eebd94ecbf5b3a714cc9ca2190dafbd1d54e70
+wrapdb_version = 0.8.2-1
 
 [provide]
 websocketpp = websocketpp_dep

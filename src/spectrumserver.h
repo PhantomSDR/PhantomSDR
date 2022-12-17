@@ -96,8 +96,8 @@ struct conn_data {
     fftwf_plan p_real;
 
     // For DC offset removal and AGC implementatino
-    MovingAverage<float> dc_history;
-    AGC<float> agc_history;
+    DCBlocker<float> dc;
+    AGC<float> agc;
 
     // Compression codec variables for waterfall and Audio
     std::unique_ptr<WaterfallEncoder> waterfall_encoder;

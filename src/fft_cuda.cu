@@ -1,4 +1,8 @@
 #include <cassert>
+#include <sstream>
+
+#include <thrust/system_error.h>
+#include <thrust/system/cuda/error.h>
 
 #include "fft.h"
 
@@ -11,8 +15,10 @@ cuFFT::cuFFT(size_t size, int nthreads, int downsample_levels)
     }
 
     cudaMalloc(&cuda_windowbuf, sizeof(float) * size);
-    cudaMemcpyAsync(cuda_windowbuf, windowbuf, sizeof(float) * size,
+    cudaMemcpy(cuda_windowbuf, windowbuf, sizeof(float) * size,
                     cudaMemcpyHostToDevice);
+    operator delete[](windowbuf, std::align_val_t(32));
+    windowbuf = NULL;
 }
 
 float *cuFFT::malloc(size_t size) {
