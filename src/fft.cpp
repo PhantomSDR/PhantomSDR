@@ -25,7 +25,7 @@ void broadcast_server::fft_task() {
 
     // FFT planning
     if (is_real) {
-        fft->plan_r2c(FFTW_ESTIMATE | FFTW_DESTROY_INPUT);
+        fft->plan_r2c(FFTW_MEASURE | FFTW_DESTROY_INPUT);
     } else {
         fft->plan_c2c(FFT::FORWARD, FFTW_MEASURE | FFTW_DESTROY_INPUT);
     }

@@ -32,7 +32,6 @@ class FFT {
     virtual void free(float *buf) = 0;
     virtual int plan_c2c(direction d, int options) = 0;
     virtual int plan_r2c(int options) = 0;
-    virtual int plan_c2r(int options) = 0;
     virtual void set_output_additional_size(size_t size);
     virtual void set_size(size_t size);
     virtual float *get_input_buffer();
@@ -74,11 +73,6 @@ class noFFT : public FFT {
         outbuf = this->malloc(size * 4);
         return 0;
     }
-    virtual int plan_c2r(int) {
-        inbuf = this->malloc(size * 2);
-        outbuf = this->malloc(size * 4);
-        return 0;
-    }
     virtual int execute() { return 0; }
     ~noFFT() {
         if (inbuf) {
@@ -103,7 +97,6 @@ class FFTW : public FFT {
     virtual void free(float *buf);
     virtual int plan_c2c(direction d, int options);
     virtual int plan_r2c(int options);
-    virtual int plan_c2r(int options);
     virtual int load_real_input(float *a1, float *a2);
     virtual int load_complex_input(float *a1, float *a2);
     virtual int execute();
@@ -121,7 +114,6 @@ class cuFFT : public FFT {
     virtual void free(float *buf);
     virtual int plan_c2c(direction d, int options);
     virtual int plan_r2c(int options);
-    virtual int plan_c2r(int options);
     virtual int load_real_input(float *a1, float *a2);
     virtual int load_complex_input(float *a1, float *a2);
     virtual int execute();
@@ -148,7 +140,6 @@ class clFFT : public FFT {
     virtual void free(float *buf);
     virtual int plan_c2c(direction d, int options);
     virtual int plan_r2c(int options);
-    virtual int plan_c2r(int options);
     virtual int load_real_input(float *a1, float *a2);
     virtual int load_complex_input(float *a1, float *a2);
     virtual int execute();
@@ -165,8 +156,8 @@ class clFFT : public FFT {
 
     std::function<cl::make_kernel<cl::Buffer, cl::Buffer>::type_> window_real;
     std::function<cl::make_kernel<cl::Buffer, cl::Buffer>::type_> window_complex;
-    std::function<cl::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_float, cl_int, cl_int>::type_> power_and_quantize;
-    std::function<cl::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_int, cl_int>::type_> half_and_quantize;
+    std::function<cl::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_float, cl_int, cl_int, cl_int>::type_> power_and_quantize;
+    std::function<cl::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_int, cl_int, cl_int>::type_> half_and_quantize;
     
     clfftPlanHandle planHandle;
     clfftDim dim;

@@ -110,18 +110,6 @@ int FFTW::plan_r2c(int options) {
     p = fftwf_plan_dft_r2c_1d(size, inbuf, (fftwf_complex *)outbuf, options);
     return 0;
 }
-int FFTW::plan_c2r(int options) {
-    assert(!p);
-
-    inbuf = this->malloc(size * 2);
-    outbuf = this->malloc(size * 2);
-    outbuf_len = size;
-
-    std::scoped_lock lk(fftwf_planner_mutex);
-    fftwf_plan_with_nthreads(nthreads);
-    p = fftwf_plan_dft_c2r_1d(size, (fftwf_complex *)inbuf, outbuf, options);
-    return 0;
-}
 int FFTW::load_real_input(float *a1, float *a2) {
     volk_32f_x2_multiply_32f(inbuf, a1, windowbuf, size / 2);
     volk_32f_x2_multiply_32f(&inbuf[size / 2], a2, &windowbuf[size / 2],
@@ -192,7 +180,7 @@ std::string kernel_window_real = R"<rawliteral>(
     #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
     void kernel power_and_quantize(global float *complexbuf, global float *powerbuf,
                                    global char *quantizedbuf, float normalize,
-                                   int complexbuf_offset, int outputbuf_offset) {
+                                   int complexbuf_offset, int outputbuf_offset, int power_offset) {
         int i = get_global_id(0);
         int i_complex = i + complexbuf_offset;
         int i_output = i + outputbuf_offset;
@@ -202,15 +190,15 @@ std::string kernel_window_real = R"<rawliteral>(
         float im = complexbuf[i_complex * 2 + 1];
         float power = re * re + im * im;
         powerbuf[i_output] = power;
-        quantizedbuf[i_output] = log_power(power);
+        quantizedbuf[i_output] = log_power(power) + power_offset * 6.020599913279624;
     }
     void kernel half_and_quantize(global const float *powerbuf, global float *halfbuf,
                                   global char *quantizedbuf,
-                                  int powerbuf_offset, int outputbuf_offset) {
+                                  int powerbuf_offset, int outputbuf_offset, int power_offset) {
         int i = get_global_id(0);
         float power = powerbuf[powerbuf_offset + i * 2] + powerbuf[powerbuf_offset + i * 2 + 1];
         halfbuf[i + outputbuf_offset] = power;
-        quantizedbuf[i + outputbuf_offset] = log_power(power);
+        quantizedbuf[i + outputbuf_offset] = log_power(power) + power_offset * 6.020599913279624;
     }
 )<rawliteral>";
 
@@ -326,7 +314,6 @@ int clFFT::plan_r2c(int options) {
     err = clfftBakePlan(planHandle, 1, &queue(), NULL, NULL);
     return err;
 }
-int clFFT::plan_c2r(int options) { return 0; }
 int clFFT::load_real_input(float *a1, float *a2) {
     // Load a1 into first half of cl_inbuf and a2 into second half
     queue.enqueueWriteBuffer(cl_inbuf, CL_FALSE, 0, sizeof(float) * size / 2,
@@ -360,18 +347,18 @@ int clFFT::execute() {
     }
     power_and_quantize(
         cl::EnqueueArgs(queue, cl::NDRange(outbuf_len - base_idx)), cl_outbuf,
-        cl_powerbuf, cl_quantizedbuf, (float)size, base_idx, 0);
+        cl_powerbuf, cl_quantizedbuf, (float)size, base_idx, 0, size_log2);
     if (base_idx)
         power_and_quantize(cl::EnqueueArgs(queue, cl::NDRange(base_idx)),
                            cl_outbuf, cl_powerbuf, cl_quantizedbuf, (float)size,
-                           0, outbuf_len - base_idx);
+                           0, outbuf_len - base_idx, size_log2);
 
     int out_len = outbuf_len;
     int offset = 0;
     for (int i = 0; i < downsample_levels - 1; i++) {
         half_and_quantize(cl::EnqueueArgs(queue, cl::NDRange(out_len / 2)),
                           cl_powerbuf, cl_powerbuf, cl_quantizedbuf, offset,
-                          offset + out_len);
+                          offset + out_len, size_log2 - i - 1);
         offset += out_len;
         out_len /= 2;
     }

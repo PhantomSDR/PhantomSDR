@@ -7,6 +7,8 @@ html-worker
 extras
 jsdsp/CMSIS_5
 jsdsp/libfoxenflac
+subprojects/tomlplusplus
+subprojects/tomlplusplus-3.2.0
 modules
 
 node_modules/

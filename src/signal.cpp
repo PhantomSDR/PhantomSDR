@@ -24,7 +24,7 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
             encoder->set_compression_level(5);
             encoder->set_sample_rate(audio_max_sps);
             encoder->set_bits_per_sample(16);
-            //encoder->set_streamable_subset(true);
+            encoder->set_streamable_subset(true);
             encoder->init();
             d->encoder = std::move(encoder);
         }
@@ -211,7 +211,7 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
                 audio_real[i] = -audio_real[i];
             }
         } else if (demodulation == LSB && frame_num % 2 == 1 &&
-                   ((audio_m % 2 == 1 && !is_real) || (audio_m % 2 == 0 && is_real))) {
+                   ((audio_m % 2 == 1 && !is_real) || (audio_m % 2 == 1 && is_real))) {
             for (int i = 0; i < audio_fft_size; i++) {
                 audio_real[i] = -audio_real[i];
             }

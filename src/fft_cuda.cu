@@ -57,17 +57,6 @@ int cuFFT::plan_r2c(int options) {
     return 0;
 }
 
-int cuFFT::plan_c2r(int options) {
-    assert(!plan);
-
-    inbuf = this->malloc(size + 2);
-    outbuf = this->malloc(size);
-
-    type = CUFFT_C2R;
-    cufftPlan1d(&plan, size, CUFFT_C2R, 1);
-    return 0;
-}
-
 __global__ void window_real(float *output, float *input, float *window,
                             size_t len) {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
