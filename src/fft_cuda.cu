@@ -1,8 +1,4 @@
 #include <cassert>
-#include <sstream>
-
-#include <thrust/system_error.h>
-#include <thrust/system/cuda/error.h>
 
 #include "fft.h"
 
@@ -16,14 +12,15 @@ cuFFT::cuFFT(size_t size, int nthreads, int downsample_levels)
 
     cudaMalloc(&cuda_windowbuf, sizeof(float) * size);
     cudaMemcpy(cuda_windowbuf, windowbuf, sizeof(float) * size,
-                    cudaMemcpyHostToDevice);
+               cudaMemcpyHostToDevice);
     operator delete[](windowbuf, std::align_val_t(32));
     windowbuf = NULL;
 }
 
 float *cuFFT::malloc(size_t size) {
     float *ptr;
-    cudaHostAlloc(&ptr, sizeof(float) * size, cudaHostAllocMapped);
+    cudaError_t err =
+        cudaHostAlloc(&ptr, sizeof(float) * size, cudaHostAllocMapped);
     return ptr;
 }
 void cuFFT::free(float *ptr) { cudaFreeHost(ptr); }
@@ -115,7 +112,7 @@ __device__ inline int log_power(float power) {
 }
 __global__ void power_and_quantize(float *complexbuf, float *powerbuf,
                                    int8_t *quantizedbuf, float normalize,
-                                   size_t outbuf_len) {
+                                   size_t outbuf_len, int power_offset) {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
     for (int i = index; i < outbuf_len; i += stride) {
@@ -125,17 +122,18 @@ __global__ void power_and_quantize(float *complexbuf, float *powerbuf,
         float im = complexbuf[i * 2 + 1];
         float power = re * re + im * im;
         powerbuf[i] = power;
-        quantizedbuf[i] = log_power(power);
+        quantizedbuf[i] = log_power(power) + power_offset * 6.020599913279624;
     }
 }
 __global__ void half_and_quantize(float *powerbuf, float *halfbuf,
-                                  int8_t *quantizedbuf, size_t outbuf_len) {
+                                  int8_t *quantizedbuf, size_t outbuf_len,
+                                  int power_offset) {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
     for (int i = index; i < outbuf_len; i += stride) {
         float power = powerbuf[i * 2] + powerbuf[i * 2 + 1];
         halfbuf[i] = power;
-        quantizedbuf[i] = log_power(power);
+        quantizedbuf[i] = log_power(power) + power_offset * 6.020599913279624;
     }
 }
 
@@ -162,12 +160,13 @@ int cuFFT::execute() {
     int numBlocks = (outbuf_len - base_idx + blockSize - 1) / blockSize;
     power_and_quantize<<<numBlocks, blockSize>>>(
         &cuda_outbuf[base_idx * 2], cuda_powerbuf, cuda_quantizedbuf, size,
-        outbuf_len - base_idx);
-    blockSize = 1024;
+        outbuf_len - base_idx, size_log2);
+
     numBlocks = (base_idx + blockSize - 1) / blockSize;
     power_and_quantize<<<numBlocks, blockSize>>>(
         cuda_outbuf, &cuda_powerbuf[outbuf_len - base_idx],
-        &cuda_quantizedbuf[outbuf_len - base_idx], size, base_idx);
+        &cuda_quantizedbuf[outbuf_len - base_idx], size, base_idx, size_log2);
+
     int out_len = outbuf_len;
     int8_t *quantized_offset_buf = cuda_quantizedbuf;
     float *power_offset_buf = cuda_powerbuf;
@@ -175,13 +174,13 @@ int cuFFT::execute() {
         numBlocks = (out_len / 2 + blockSize - 1) / blockSize;
         half_and_quantize<<<numBlocks, blockSize>>>(
             power_offset_buf, power_offset_buf + out_len,
-            quantized_offset_buf + out_len, out_len / 2);
+            quantized_offset_buf + out_len, out_len / 2, size_log2 - i - 1);
         power_offset_buf += out_len;
         quantized_offset_buf += out_len;
         out_len /= 2;
     }
 
-    //cudaDeviceSynchronize();
+    cudaDeviceSynchronize();
     return 0;
 }
 cuFFT::~cuFFT() {

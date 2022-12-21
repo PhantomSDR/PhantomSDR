@@ -45,6 +45,7 @@ class FFT {
 
   protected:
     size_t size;
+    int size_log2;
     int nthreads;
     int downsample_levels;
     int additional_size;

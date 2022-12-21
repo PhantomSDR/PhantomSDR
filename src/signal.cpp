@@ -24,7 +24,7 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
             encoder->set_compression_level(5);
             encoder->set_sample_rate(audio_max_sps);
             encoder->set_bits_per_sample(16);
-            encoder->set_streamable_subset(true);
+            //encoder->set_streamable_subset(true);
             encoder->init();
             d->encoder = std::move(encoder);
         }
@@ -63,9 +63,6 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
         d->p_real = fftwf_plan_dft_c2r_1d(audio_fft_size, audio_fft_input,
                                           d->audio_real.data(), FFTW_ESTIMATE);
     }
-
-    d->dc_history = MovingAverage<float>(60);
-    d->agc_history = AGC<float>(0.5);
 
     server::connection_ptr con = m_server.get_con_from_hdl(hdl);
     con->set_close_handler(std::bind(&broadcast_server::on_close_signal, this,
@@ -176,11 +173,14 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
             }
             float lastI = audio_complex_baseband[audio_fft_size - 1][0];
             float lastQ = audio_complex_baseband[audio_fft_size - 1][1];
+            // Remove DC
+            //audio_fft_input[0][0] = 0;
+            //audio_fft_input[0][1] = 0;
             fftwf_execute(d->p_complex);
             if (demodulation == AM) {
                 // Envelope detection for AM
                 for (int i = 0; i < audio_fft_size; i++) {
-                    audio_real[i] = sqrt(audio_complex_baseband[i][0] *
+                    audio_real[i] = std::sqrt(audio_complex_baseband[i][0] *
                                              audio_complex_baseband[i][0] +
                                          audio_complex_baseband[i][1] *
                                              audio_complex_baseband[i][1]);
@@ -195,7 +195,7 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
                     //(I + jQ) * (lastI - jlastQ)
                     float newI = I * lastI + Q * lastQ;
                     float newQ = -I * lastQ + Q * lastI;
-                    audio_real[i] = atan2(newQ, newI);
+                    audio_real[i] = std::atan2(newQ, newI);
                     lastI = I;
                     lastQ = Q;
                 }
@@ -218,7 +218,6 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
         }
 
         // Overlap and add the audio waveform, due to the 50% overlap
-        float cur_dc_sum = 0;
         for (int i = 0; i < audio_fft_size / 2; i++) {
             // For FM amplitude does not matter. Since there are edge effects,
             // do overlap save and only save the middle part
@@ -227,30 +226,27 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
             } else {
                 audio_real[i] = (audio_real[i] + audio_real_prev[i]) / 2;
             }
-            cur_dc_sum += audio_real[i];
         }
 
-        // DC removal, average over 60 consecutive bins for a better estimate of
-        cur_dc_sum /= audio_fft_size / 2;
-        d->dc_history.insert(cur_dc_sum);
-        float dc_scale = d->dc_history.getAverage();
+        // Check if any audio_real is nan
         for (int i = 0; i < audio_fft_size / 2; i++) {
-            audio_real[i] -= dc_scale;
+            if (std::isnan(audio_real[i])) {
+                throw std::runtime_error("NaN found in audio_real");
         }
-        // AGC implementation, average over 60 consecutive bins for a better
-        // estimate of power
-        float cur_agc_sum = 0;
-        for (int i = 0; i < audio_fft_size / 2; i++) {
-            cur_agc_sum += audio_real[i] * audio_real[i];
         }
-        cur_agc_sum /= audio_fft_size / 2;
-        d->agc_history.update(cur_agc_sum);
-        float agc_scale = sqrt(d->agc_history.getValue());
+        
+
+
+        // DC removal
+        d->dc.removeDC(audio_real.data(), audio_fft_size / 2);
+
+        // AGC
+        d->agc.applyAGC(audio_real.data(), audio_fft_size / 2);
 
         // Quantize into 16 bit audio to save bandwidth
         for (int i = 0; i < audio_fft_size / 2; i++) {
             audio_real_int16[i] =
-                ((audio_real[i] / agc_scale * 65536 / 32 + 32768.5) - 32768);
+                ((audio_real[i] * 65536 / 32 + 32768.5) - 32768);
         }
 
         // Copy the half to add in the next frame

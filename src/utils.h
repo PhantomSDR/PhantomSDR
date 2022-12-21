@@ -1,8 +1,10 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-#include <string>
+#include <cmath>
+#include <iostream>
 #include <queue>
+#include <string>
 
 void build_hann_window(float *arr, int num);
 void build_blackman_harris_window(float *arr, int num);
@@ -35,23 +37,47 @@ template <class T> class MovingAverage {
     T sum;
 };
 
-template <class T> class AGC {
+template <class T> class DCBlocker {
   public:
-    AGC() : AGC(1) {}
-    AGC(float alpha) : alpha{alpha}, value{0} {}
+    DCBlocker() : DCBlocker(0.999) {}
+    DCBlocker(float alpha) : alpha{alpha}, prev{0}, value{0} {}
     void setAlpha(float alpha) { this->alpha = alpha; }
-    void update(T val) {
-      if (val > 10 * value) {
-        value = val;
-      } else {
-        value = alpha * val + (1 - alpha) * value;
-      }
+    void removeDC(T *arr, int length) {
+        for (int i = 0; i < length; i++) {
+            value = arr[i] - prev + alpha * value;
+            prev = arr[i];
+            arr[i] = value;
+        }
     }
-    T getValue() {
-      return value;
+    void reset() {
+        prev = 0;
+        value = 0;
     }
+
   protected:
     float alpha;
+    float prev;
+    float value;
+};
+
+template <class T> class AGC {
+  public:
+    AGC() : AGC(0.9999, 1) {}
+    AGC(float alpha, float target) : alpha{alpha}, target{target}, value{0} {}
+    void setAlpha(float alpha) { this->alpha = alpha; }
+    void setTarget(float target) { this->target = target; }
+    void applyAGC(T *arr, int length) {
+        for (int i = 0; i < length; i++) {
+            value = alpha * value + (1 - alpha) * arr[i] * arr[i];
+            arr[i] *= target / std::sqrt(value);
+            arr[i] = std::max(std::min(arr[i], 1.0f), -1.0f);
+        }
+    }
+    void reset() { value = 0; }
+
+  protected:
+    float alpha;
+    float target;
     float value;
 };
 #endif

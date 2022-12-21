@@ -22,7 +22,7 @@ static inline float vec_log2(float val) {
 }
 static inline void power_and_quantize(float *complexbuf, float *powerbuf,
                                       int8_t *quantizedbuf, float normalize,
-                                      size_t outbuf_len) {
+                                      size_t outbuf_len, int power_offset) {
     /*complexbuf = (float *)__builtin_assume_aligned(complexbuf, 32);
     powerbuf = (float *)__builtin_assume_aligned(powerbuf, 32);
     quantizedbuf = (int8_t *)__builtin_assume_aligned(quantizedbuf, 32);
@@ -36,11 +36,13 @@ static inline void power_and_quantize(float *complexbuf, float *powerbuf,
         float power = re * re + im * im;
         powerbuf[i] = power;
         quantizedbuf[i] =
-            std::max(-128., vec_log2(power) * 0.3010299956639812 * 20 + 127);
+            std::max(-128., vec_log2(power) * 0.3010299956639812 * 20 + 127) +
+            power_offset * 6.020599913279624;
     }
 }
 static inline void half_and_quantize(float *powerbuf, float *halfbuf,
-                                     int8_t *quantizedbuf, size_t outbuf_len) {
+                                     int8_t *quantizedbuf, size_t outbuf_len,
+                                     int power_offset) {
     powerbuf = (float *)__builtin_assume_aligned(powerbuf, 32);
     halfbuf = (float *)__builtin_assume_aligned(halfbuf, 32);
     quantizedbuf = (int8_t *)__builtin_assume_aligned(quantizedbuf, 32);
@@ -50,12 +52,13 @@ static inline void half_and_quantize(float *powerbuf, float *halfbuf,
         float power = powerbuf[i * 2] + powerbuf[i * 2 + 1];
         halfbuf[i] = power;
         quantizedbuf[i] =
-            std::max(-128., vec_log2(power) * 0.3010299956639812 * 20 + 127);
+            std::max(-128., vec_log2(power) * 0.3010299956639812 * 20 + 127) +
+            power_offset * 6.020599913279624;
     }
 }
 
 FFT::FFT(size_t size, int nthreads, int downsample_levels)
-    : size{size}, nthreads{nthreads},
+    : size{size}, size_log2{round(log2(size))}, nthreads{nthreads},
       downsample_levels{downsample_levels}, inbuf{0}, outbuf{0} {
     windowbuf = new (std::align_val_t(32)) float[size];
     build_hann_window(windowbuf, size);
@@ -145,16 +148,16 @@ int FFTW::execute() {
     // outbuf is complex so we need to multiply by 2
     // Also normalize the power by the number of bins
     power_and_quantize(&outbuf[base_idx * 2], powerbuf, quantizedbuf, size,
-                       outbuf_len - base_idx);
+                       outbuf_len - base_idx, size_log2);
     power_and_quantize(outbuf, &powerbuf[outbuf_len - base_idx],
-                       &quantizedbuf[outbuf_len - base_idx], size, base_idx);
+                       &quantizedbuf[outbuf_len - base_idx], size, base_idx, size_log2);
 
     int out_len = outbuf_len;
     int8_t *quantized_offset_buf = quantizedbuf;
     float *power_offset_buf = powerbuf;
     for (int i = 0; i < downsample_levels - 1; i++) {
         half_and_quantize(power_offset_buf, power_offset_buf + out_len,
-                          quantized_offset_buf + out_len, out_len / 2);
+                          quantized_offset_buf + out_len, out_len / 2, size_log2 - i - 1);
         power_offset_buf += out_len;
         quantized_offset_buf += out_len;
         out_len /= 2;
@@ -264,7 +267,7 @@ clFFT::clFFT(size_t size, int nthreads, int downsample_levels)
     half_and_quantize =
         cl::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_int, cl_int>(
             program, "half_and_quantize");
-    
+
     operator delete[](windowbuf, std::align_val_t(32));
     windowbuf = NULL;
 }
