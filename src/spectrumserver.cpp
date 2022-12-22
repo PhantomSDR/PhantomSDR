@@ -111,6 +111,9 @@ broadcast_server::broadcast_server(
     } else if (str_config["accelerator"] == "opencl") {
         accelerator = GPU_clFFT;
         std::cout << "Using OpenCL" << std::endl;
+    } else if (str_config["accelerator"] == "mkl") {
+        accelerator = CPU_mklFFT;
+        std::cout << "Using MKL" << std::endl;
     }
 
     // Calculate number of downsampling levels for fft
@@ -129,6 +132,12 @@ broadcast_server::broadcast_server(
     } else if (accelerator == GPU_clFFT) {
 #ifdef CLFFT
         fft = std::make_unique<clFFT>(fft_size, fft_threads, downsample_levels);
+#else
+        throw "OpenCL support is not compiled in";
+#endif
+    } else if (accelerator == CPU_mklFFT) {
+#ifdef MKL
+        fft = std::make_unique<mklFFT>(fft_size, fft_threads, downsample_levels);
 #else
         throw "OpenCL support is not compiled in";
 #endif

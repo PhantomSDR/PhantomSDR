@@ -26,6 +26,7 @@ enum fft_accelerator {
     CPU_FFTW,
     GPU_cuFFT,
     GPU_clFFT,
+    CPU_mklFFT,
 };
 
 class FFT {
