@@ -164,7 +164,7 @@ FFTW::~FFTW() {
 
 #ifdef MKL
 mklFFT::mklFFT(size_t size, int nthreads, int downsample_levels)
-    : mklFFT(size, nthreads, downsample_levels) {}
+    : FFT(size, nthreads, downsample_levels) {}
 
 float *mklFFT::malloc(size_t size) {
     return (float *)fftwf_malloc(sizeof(float) * size);
@@ -187,7 +187,6 @@ int mklFFT::plan_c2c(direction d, int options) {
     return 0;
 }
 int mklFFT::plan_r2c(int options) {
-    assert(!p);
 
     inbuf = this->malloc(size);
     outbuf = this->malloc(size + 2);
