@@ -16,7 +16,7 @@ void broadcast_server::on_open(connection_hdl hdl) {
     } else if (path == "/waterfall") {
         on_open_waterfall(hdl);
     } else if (path == "/waterfall_raw") {
-        //on_open_waterfall_raw(hdl);
+        // on_open_waterfall_raw(hdl);
     } else if (path == "/events") {
         on_open_events(hdl);
     } else {
@@ -26,7 +26,7 @@ void broadcast_server::on_open(connection_hdl hdl) {
 
 void broadcast_server::on_open_unknown(connection_hdl hdl) {
     server::connection_ptr con = m_server.get_con_from_hdl(hdl);
-    con->set_close_handler([](connection_hdl){}); // No-op
+    con->set_close_handler([](connection_hdl) {}); // No-op
 
     // Immediately close
     websocketpp::lib::error_code ec;
@@ -61,7 +61,8 @@ void broadcast_server::send_basic_info(connection_hdl hdl) {
     defaults.AddMember("m", default_m, d.GetAllocator());
     defaults.AddMember("r", default_r, d.GetAllocator());
 
-    d.AddMember("waterfall_compression", waterfall_compression_str, d.GetAllocator());
+    d.AddMember("waterfall_compression", waterfall_compression_str,
+                d.GetAllocator());
     d.AddMember("audio_compression", audio_compression_str, d.GetAllocator());
 
     d.AddMember("defaults", defaults, d.GetAllocator());
@@ -76,7 +77,8 @@ void broadcast_server::send_basic_info(connection_hdl hdl) {
                   websocketpp::frame::opcode::text);
 }
 
-void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg, std::shared_ptr<conn_data> &d) {
+void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg,
+                                  std::shared_ptr<conn_data> &d) {
 
     // Limit the amount of data received
     std::string payload = msg->get_payload().substr(0, 1024);
@@ -103,11 +105,9 @@ void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg, s
         type_str = "Events";
     }
     command_log << ip;
-    command_log << " [" << type_str
-                << " User: " << d->user_id << "]";
+    command_log << " [" << type_str << " User: " << d->user_id << "]";
     command_log << " Message: " + payload;
-    m_server.get_alog().write(websocketpp::log::alevel::app,
-                                command_log.str());
+    m_server.get_alog().write(websocketpp::log::alevel::app, command_log.str());
 
     if (!document.HasMember("cmd")) {
         return;
@@ -136,7 +136,7 @@ void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg, s
             {
                 std::scoped_lock lk1(signal_slice_mtx);
                 auto it = d->it;
-                
+
                 auto node = signal_slices.extract(it);
                 node.key() = {new_l, new_r};
                 it = signal_slices.insert(std::move(node));
@@ -149,8 +149,7 @@ void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg, s
 
                 if (show_other_users) {
                     std::scoped_lock lk3(signal_changes_mtx);
-                    signal_changes[d->unique_id] = {
-                        new_l, new_m, new_r};
+                    signal_changes[d->unique_id] = {new_l, new_m, new_r};
                 }
             }
         } else if (type == WATERFALL) {
@@ -178,9 +177,7 @@ void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg, s
             {
                 std::ostringstream command_log;
                 command_log << ip;
-                command_log
-                    << " [Waterfall User: " << d->user_id
-                    << "]";
+                command_log << " [Waterfall User: " << d->user_id << "]";
                 command_log << " Waterfall Level: " << new_level;
                 command_log << " Waterfall L: " << new_l;
                 command_log << " Waterfall R: " << new_r;
@@ -223,7 +220,7 @@ void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg, s
             d->demodulation = FM;
         }
     } else if (document["cmd"] == "userid") {
-        if (!document.HasMember("userid")) {
+        if (!document.HasMember("userid") || !document["userid"].IsString()) {
             return;
         }
         // Used for correlating between signal and waterfall sockets
@@ -231,8 +228,3 @@ void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg, s
         d->user_id = user_id.substr(0, 32);
     }
 }
-/*
-void broadcast_server::on_close(connection_hdl hdl) {
-    
-}
-*/

@@ -174,16 +174,16 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
             float lastI = audio_complex_baseband[audio_fft_size - 1][0];
             float lastQ = audio_complex_baseband[audio_fft_size - 1][1];
             // Remove DC
-            //audio_fft_input[0][0] = 0;
-            //audio_fft_input[0][1] = 0;
+            // audio_fft_input[0][0] = 0;
+            // audio_fft_input[0][1] = 0;
             fftwf_execute(d->p_complex);
             if (demodulation == AM) {
                 // Envelope detection for AM
                 for (int i = 0; i < audio_fft_size; i++) {
                     audio_real[i] = std::sqrt(audio_complex_baseband[i][0] *
-                                             audio_complex_baseband[i][0] +
-                                         audio_complex_baseband[i][1] *
-                                             audio_complex_baseband[i][1]);
+                                                  audio_complex_baseband[i][0] +
+                                              audio_complex_baseband[i][1] *
+                                                  audio_complex_baseband[i][1]);
                 }
             }
             if (demodulation == FM) {
@@ -211,7 +211,8 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
                 audio_real[i] = -audio_real[i];
             }
         } else if (demodulation == LSB && frame_num % 2 == 1 &&
-                   ((audio_m % 2 == 1 && !is_real) || (audio_m % 2 == 1 && is_real))) {
+                   ((audio_m % 2 == 1 && !is_real) ||
+                    (audio_m % 2 == 1 && is_real))) {
             for (int i = 0; i < audio_fft_size; i++) {
                 audio_real[i] = -audio_real[i];
             }
@@ -232,10 +233,8 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
         for (int i = 0; i < audio_fft_size / 2; i++) {
             if (std::isnan(audio_real[i])) {
                 throw std::runtime_error("NaN found in audio_real");
+            }
         }
-        }
-        
-
 
         // DC removal
         d->dc.removeDC(audio_real.data(), audio_fft_size / 2);

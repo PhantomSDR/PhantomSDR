@@ -1,7 +1,6 @@
 #ifndef SPECTRUMSERVER_H
 #define SPECTRUMSERVER_H
 
-#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -15,11 +14,7 @@
 #include <fftw3.h>
 #include <toml++/toml.h>
 
-// #define TBB_PREVIEW_CONCURRENT_ORDERED_CONTAINERS 1
-// #include "tbb/concurrent_unordered_map.h"
-
 #include <websocketpp/config/asio_no_tls.hpp>
-#include <websocketpp/extensions/permessage_deflate/enabled.hpp>
 #include <websocketpp/server.hpp>
 
 #include "audio.h"
@@ -31,7 +26,15 @@
 
 using websocketpp::connection_hdl;
 
-enum conn_type { SIGNAL, WATERFALL, AUDIO, EVENTS, WATERFALL_RAW, SIGNAL_RAW, UNKNOWN };
+enum conn_type {
+    SIGNAL,
+    WATERFALL,
+    AUDIO,
+    EVENTS,
+    WATERFALL_RAW,
+    SIGNAL_RAW,
+    UNKNOWN
+};
 
 enum demodulation_mode { USB, LSB, AM, FM };
 
@@ -41,7 +44,7 @@ enum audio_compressor { AUDIO_FLAC, AUDIO_OPUS };
 
 typedef struct conn_data conn_data;
 
-// Maintains a sorted list of signal sl ice wanted to the connection
+// Maintains a sorted list of signal slice mapped to the connection
 typedef std::multimap<std::pair<int, int>, std::shared_ptr<conn_data>>
     signal_list;
 
@@ -67,10 +70,10 @@ struct conn_data {
 
     // 0 frequency of the downconverted signal
     double audio_mid;
-    union {
-        int level;
-        int frame_num;
-    };
+
+    int level;
+    int frame_num;
+
     // User requested frequency range
     int l;
     int r;
@@ -81,7 +84,6 @@ struct conn_data {
     // Scratch space for the slice the user requested
     fftwf_complex *fft_slice_buf;
     uint8_t *waterfall_slice_buf;
-    
 
     // Scratch space for audio demodulation
     int audio_fft_size;
@@ -138,7 +140,7 @@ typedef std::set<connection_hdl, std::owner_less<connection_hdl>>
 class broadcast_server {
   public:
     broadcast_server(std::unique_ptr<SampleConverter> reader,
-                     toml::parse_result& config,
+                     toml::parse_result &config,
                      std::unordered_map<std::string, int64_t> &int_config,
                      std::unordered_map<std::string, std::string> &str_config);
     void run(uint16_t port);
@@ -243,13 +245,8 @@ class broadcast_server {
     int waterfall_processing;
     int signal_processing;
 
-    // Dedicated threads for core functions
+    // Dedicated threads for FFT
     std::thread fft_thread;
-    std::thread signal_thread;
-    std::thread waterfall_thread;
-
-    // Other functions go into the thread_pool
-    // boost::asio::thread_pool pool;
 };
 
 #endif

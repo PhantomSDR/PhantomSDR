@@ -2,17 +2,9 @@
 #define WEBSOCKET_H
 
 #include <websocketpp/config/asio_no_tls.hpp>
-#include <websocketpp/extensions/permessage_deflate/enabled.hpp>
 #include <websocketpp/server.hpp>
 
 struct server_config : public websocketpp::config::asio {
-    // ... additional custom config if you need it for other things
-
-    /*struct permessage_deflate_config {};
-
-    typedef websocketpp::extensions::permessage_deflate::enabled<
-        permessage_deflate_config>
-        permessage_deflate_type;*/
 
     typedef websocketpp::config::asio core;
 

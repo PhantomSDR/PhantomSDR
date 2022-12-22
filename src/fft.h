@@ -9,8 +9,12 @@
 #endif
 
 #ifdef CLFFT
-#include <CL/cl.hpp>
+#include <CL/opencl.hpp>
 #include <clFFT.h>
+#endif
+
+#ifdef MKL
+#include "mkl_dfti.h"
 #endif
 
 #include <fftw3.h>
@@ -106,6 +110,24 @@ class FFTW : public FFT {
     fftwf_plan p;
 };
 
+#ifdef MKL
+class mklFFT : public FFT {
+  public:
+    mklFFT(size_t size, int nthreads, int downsample_levels);
+    virtual float *malloc(size_t size);
+    virtual void free(float *buf);
+    virtual int plan_c2c(direction d, int options);
+    virtual int plan_r2c(int options);
+    virtual int load_real_input(float *a1, float *a2);
+    virtual int load_complex_input(float *a1, float *a2);
+    virtual int execute();
+    virtual ~mklFFT();
+
+  protected:
+    DFTI_DESCRIPTOR_HANDLE descriptor;
+};
+#endif
+
 #ifdef CUFFT
 class cuFFT : public FFT {
   public:
@@ -154,10 +176,10 @@ class clFFT : public FFT {
     cl::Program::Sources sources;
     cl::Program program;
 
-    std::function<cl::make_kernel<cl::Buffer, cl::Buffer>::type_> window_real;
-    std::function<cl::make_kernel<cl::Buffer, cl::Buffer>::type_> window_complex;
-    std::function<cl::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_float, cl_int, cl_int, cl_int>::type_> power_and_quantize;
-    std::function<cl::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_int, cl_int, cl_int>::type_> half_and_quantize;
+    std::function<cl::compatibility::make_kernel<cl::Buffer, cl::Buffer>::type_> window_real;
+    std::function<cl::compatibility::make_kernel<cl::Buffer, cl::Buffer>::type_> window_complex;
+    std::function<cl::compatibility::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_float, cl_int, cl_int, cl_int>::type_> power_and_quantize;
+    std::function<cl::compatibility::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_int, cl_int, cl_int>::type_> half_and_quantize;
     
     clfftPlanHandle planHandle;
     clfftDim dim;
