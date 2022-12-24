@@ -62,7 +62,7 @@ template <class T> class DCBlocker {
 
 template <class T> class AGC {
   public:
-    AGC() : AGC(0.9999, 1) {}
+    AGC() : AGC(0.9999, 0.1) {}
     AGC(float alpha, float target) : alpha{alpha}, target{target}, value{0} {}
     void setAlpha(float alpha) { this->alpha = alpha; }
     void setTarget(float target) { this->target = target; }

@@ -80,9 +80,10 @@ if opencl_dep.found() and clfft_dep.found()
     add_project_arguments('-DCLFFT', language : 'cpp')
 endif
 
-if mkl_dep.found()
-    add_project_arguments('-DMKL', language : 'cpp')
-endif
+#if mkl_dep.found()
+#    fftw3f_deps += mkl_dep
+#    add_project_arguments('-DMKL', language : 'cpp')
+#endif
 
 srcs = [
     'src/spectrumserver.cpp',
@@ -119,6 +120,5 @@ executable(
         codec_deps,
         volk_dep,
         zlib_dep,
-        mkl_dep,
     ]
 )

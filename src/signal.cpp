@@ -174,8 +174,6 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
             float lastI = audio_complex_baseband[audio_fft_size - 1][0];
             float lastQ = audio_complex_baseband[audio_fft_size - 1][1];
             // Remove DC
-            // audio_fft_input[0][0] = 0;
-            // audio_fft_input[0][1] = 0;
             fftwf_execute(d->p_complex);
             if (demodulation == AM) {
                 // Envelope detection for AM
@@ -245,7 +243,7 @@ void broadcast_server::signal_send(std::shared_ptr<conn_data> &d,
         // Quantize into 16 bit audio to save bandwidth
         for (int i = 0; i < audio_fft_size / 2; i++) {
             audio_real_int16[i] =
-                ((audio_real[i] * 65536 / 32 + 32768.5) - 32768);
+                ((audio_real[i] * 65536 / 4 + 32768.5) - 32768);
         }
 
         // Copy the half to add in the next frame

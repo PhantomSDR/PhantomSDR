@@ -36,8 +36,8 @@ static inline void power_and_quantize(float *complexbuf, float *powerbuf,
         float power = re * re + im * im;
         powerbuf[i] = power;
         quantizedbuf[i] =
-            std::max(-128., vec_log2(power) * 0.3010299956639812 * 20 + 127) +
-            power_offset * 6.020599913279624;
+            std::max(-128., vec_log2(power) * 0.3010299956639812 * 20 +
+                                power_offset * 6.020599913279624 + 127);
     }
 }
 static inline void half_and_quantize(float *powerbuf, float *halfbuf,
@@ -52,8 +52,8 @@ static inline void half_and_quantize(float *powerbuf, float *halfbuf,
         float power = powerbuf[i * 2] + powerbuf[i * 2 + 1];
         halfbuf[i] = power;
         quantizedbuf[i] =
-            std::max(-128., vec_log2(power) * 0.3010299956639812 * 20 + 127) +
-            power_offset * 6.020599913279624;
+            std::max(-128., vec_log2(power) * 0.3010299956639812 * 20 +
+                                power_offset * 6.020599913279624 + 127);
     }
 }
 
@@ -138,14 +138,16 @@ int FFTW::execute() {
     power_and_quantize(&outbuf[base_idx * 2], powerbuf, quantizedbuf, size,
                        outbuf_len - base_idx, size_log2);
     power_and_quantize(outbuf, &powerbuf[outbuf_len - base_idx],
-                       &quantizedbuf[outbuf_len - base_idx], size, base_idx, size_log2);
+                       &quantizedbuf[outbuf_len - base_idx], size, base_idx,
+                       size_log2);
 
     int out_len = outbuf_len;
     int8_t *quantized_offset_buf = quantizedbuf;
     float *power_offset_buf = powerbuf;
     for (int i = 0; i < downsample_levels - 1; i++) {
         half_and_quantize(power_offset_buf, power_offset_buf + out_len,
-                          quantized_offset_buf + out_len, out_len / 2, size_log2 - i - 1);
+                          quantized_offset_buf + out_len, out_len / 2,
+                          size_log2 - i - 1);
         power_offset_buf += out_len;
         quantized_offset_buf += out_len;
         out_len /= 2;
@@ -173,16 +175,18 @@ float *mklFFT::malloc(size_t size) {
 void mklFFT::free(float *buf) { fftwf_free(buf); }
 
 int mklFFT::plan_c2c(direction d, int options) {
-    
+
     inbuf = this->malloc(size * 2);
     outbuf = this->malloc(size * 2 + additional_size * 2);
     outbuf_len = size;
     powerbuf = new (std::align_val_t(32)) float[size * 2];
     quantizedbuf = new (std::align_val_t(32)) int8_t[size * 2];
 
-    DftiCreateDescriptor(&descriptor, DFTI_SINGLE, DFTI_COMPLEX, 1, size); //Specify size and precision
-    DftiSetValue(descriptor, DFTI_PLACEMENT, DFTI_NOT_INPLACE); //Out of place FFT
-    DftiCommitDescriptor(descriptor); //Finalize the descriptor
+    DftiCreateDescriptor(&descriptor, DFTI_SINGLE, DFTI_COMPLEX, 1,
+                         size); // Specify size and precision
+    DftiSetValue(descriptor, DFTI_PLACEMENT,
+                 DFTI_NOT_INPLACE);   // Out of place FFT
+    DftiCommitDescriptor(descriptor); // Finalize the descriptor
 
     return 0;
 }
@@ -194,9 +198,11 @@ int mklFFT::plan_r2c(int options) {
     powerbuf = new (std::align_val_t(32)) float[size];
     quantizedbuf = new (std::align_val_t(32)) int8_t[size];
 
-    DftiCreateDescriptor(&descriptor, DFTI_SINGLE, DFTI_REAL, 1, size); //Specify size and precision
-    DftiSetValue(descriptor, DFTI_PLACEMENT, DFTI_NOT_INPLACE); //Out of place FFT
-    DftiCommitDescriptor(descriptor); //Finalize the descriptor
+    DftiCreateDescriptor(&descriptor, DFTI_SINGLE, DFTI_REAL, 1,
+                         size); // Specify size and precision
+    DftiSetValue(descriptor, DFTI_PLACEMENT,
+                 DFTI_NOT_INPLACE);   // Out of place FFT
+    DftiCommitDescriptor(descriptor); // Finalize the descriptor
 
     return 0;
 }
@@ -214,7 +220,7 @@ int mklFFT::load_complex_input(float *a1, float *a2) {
     return 0;
 }
 int mklFFT::execute() {
-    DftiComputeForward(descriptor, inbuf, outbuf); //Compute the Forward FFT
+    DftiComputeForward(descriptor, inbuf, outbuf); // Compute the Forward FFT
     // Calculate the waterfall buffers
 
     int base_idx = 0;
@@ -228,14 +234,16 @@ int mklFFT::execute() {
     power_and_quantize(&outbuf[base_idx * 2], powerbuf, quantizedbuf, size,
                        outbuf_len - base_idx, size_log2);
     power_and_quantize(outbuf, &powerbuf[outbuf_len - base_idx],
-                       &quantizedbuf[outbuf_len - base_idx], size, base_idx, size_log2);
+                       &quantizedbuf[outbuf_len - base_idx], size, base_idx,
+                       size_log2);
 
     int out_len = outbuf_len;
     int8_t *quantized_offset_buf = quantizedbuf;
     float *power_offset_buf = powerbuf;
     for (int i = 0; i < downsample_levels - 1; i++) {
         half_and_quantize(power_offset_buf, power_offset_buf + out_len,
-                          quantized_offset_buf + out_len, out_len / 2, size_log2 - i - 1);
+                          quantized_offset_buf + out_len, out_len / 2,
+                          size_log2 - i - 1);
         power_offset_buf += out_len;
         quantized_offset_buf += out_len;
         out_len /= 2;
@@ -243,7 +251,7 @@ int mklFFT::execute() {
     return 0;
 }
 mklFFT::~mklFFT() {
-    DftiFreeDescriptor(&descriptor); //Free the descriptor
+    DftiFreeDescriptor(&descriptor); // Free the descriptor
     this->free(inbuf);
     this->free(outbuf);
     operator delete[](powerbuf, std::align_val_t(32));
@@ -334,15 +342,17 @@ clFFT::clFFT(size_t size, int nthreads, int downsample_levels)
         throw std::runtime_error("Error building OpenCL program");
     }
 
-    window_real =
-        cl::compatibility::make_kernel<cl::Buffer, cl::Buffer>(program, "window_real");
-    window_complex =
-        cl::compatibility::make_kernel<cl::Buffer, cl::Buffer>(program, "window_complex");
+    window_real = cl::compatibility::make_kernel<cl::Buffer, cl::Buffer>(
+        program, "window_real");
+    window_complex = cl::compatibility::make_kernel<cl::Buffer, cl::Buffer>(
+        program, "window_complex");
     power_and_quantize =
-        cl::compatibility::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_float, cl_int,
-                        cl_int, cl_int>(program, "power_and_quantize");
+        cl::compatibility::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer,
+                                       cl_float, cl_int, cl_int, cl_int>(
+            program, "power_and_quantize");
     half_and_quantize =
-        cl::compatibility::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_int, cl_int, cl_int>(
+        cl::compatibility::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer,
+                                       cl_int, cl_int, cl_int>(
             program, "half_and_quantize");
 
     operator delete[](windowbuf, std::align_val_t(32));

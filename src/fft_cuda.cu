@@ -96,8 +96,9 @@ int cuFFT::load_complex_input(float *a1, float *a2) {
     return 0;
 }
 
-__device__ inline int log_power(float power) {
-    return max(-128, __float2int_rz(20 * log10f(power) + 127));
+__device__ inline int log_power(float power, int power_offset) {
+    return max(-128, __float2int_rz(20 * log10f(power) +
+                                    power_offset * 6.020599913279624 + 127));
 }
 __global__ void power_and_quantize(float *complexbuf, float *powerbuf,
                                    int8_t *quantizedbuf, float normalize,
@@ -111,7 +112,7 @@ __global__ void power_and_quantize(float *complexbuf, float *powerbuf,
         float im = complexbuf[i * 2 + 1];
         float power = re * re + im * im;
         powerbuf[i] = power;
-        quantizedbuf[i] = log_power(power) + power_offset * 6.020599913279624;
+        quantizedbuf[i] = log_power(power, power_offset);
     }
 }
 __global__ void half_and_quantize(float *powerbuf, float *halfbuf,
@@ -122,7 +123,7 @@ __global__ void half_and_quantize(float *powerbuf, float *halfbuf,
     for (int i = index; i < outbuf_len; i += stride) {
         float power = powerbuf[i * 2] + powerbuf[i * 2 + 1];
         halfbuf[i] = power;
-        quantizedbuf[i] = log_power(power) + power_offset * 6.020599913279624;
+        quantizedbuf[i] = log_power(power, power_offset);
     }
 }
 
