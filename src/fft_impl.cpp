@@ -11,9 +11,11 @@
 
 std::mutex fftwf_planner_mutex;
 
-static inline float vec_log2(float val) {
+// Compiler autovectorization
+static inline float vec_log2(float val, int power_offset) {
     uint32_t *bit_exponent = (uint32_t *)&val;
-    float log_val = (float)((int)((*bit_exponent >> 23) & 0xFF) - 128);
+    float log_val =
+        (float)((int)((*bit_exponent >> 23) & 0xFF) - 128) + power_offset;
     // Set exponent to 0
     *bit_exponent &= ~(255 << 23);
     *bit_exponent += 127 << 23;
@@ -35,9 +37,9 @@ static inline void power_and_quantize(float *complexbuf, float *powerbuf,
         float im = complexbuf[i * 2 + 1];
         float power = re * re + im * im;
         powerbuf[i] = power;
-        quantizedbuf[i] =
-            std::max(-128., vec_log2(power) * 0.3010299956639812 * 20 +
-                                power_offset * 6.020599913279624 + 127);
+        quantizedbuf[i] = std::max(
+            -128.f,
+            vec_log2(power, power_offset) * 0.3010299956639812f * 20.f + 127.f);
     }
 }
 static inline void half_and_quantize(float *powerbuf, float *halfbuf,
@@ -51,9 +53,9 @@ static inline void half_and_quantize(float *powerbuf, float *halfbuf,
     for (size_t i = 0; i < outbuf_len; i++) {
         float power = powerbuf[i * 2] + powerbuf[i * 2 + 1];
         halfbuf[i] = power;
-        quantizedbuf[i] =
-            std::max(-128., vec_log2(power) * 0.3010299956639812 * 20 +
-                                power_offset * 6.020599913279624 + 127);
+        quantizedbuf[i] = std::max(
+            -128.f,
+            vec_log2(power, power_offset) * 0.3010299956639812f * 20.f + 127.f);
     }
 }
 
