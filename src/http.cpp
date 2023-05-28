@@ -1,6 +1,9 @@
 #include "compression.h"
 #include "spectrumserver.h"
 
+#include <filesystem>
+#include <fstream>
+
 #include <boost/algorithm/string.hpp>
 
 std::unordered_map<std::string, std::string> mime_types{

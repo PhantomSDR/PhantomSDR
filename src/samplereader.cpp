@@ -1,73 +1,78 @@
 #include "samplereader.h"
-#include <iostream>
-#include <vector>
-#include <volk/volk.h>
+#include "utils.h"
 
-SampleConverter::SampleConverter(std::unique_ptr<SampleReader> reader)
-    : reader(std::move(reader)) {}
+#include <iostream>
+#include <limits>
+#include <type_traits>
+#include <vector>
 
 FileSampleReader::FileSampleReader(FILE *f) : f{f} {}
 int FileSampleReader::read(void *arr, int num) {
     return fread(arr, sizeof(uint8_t), num, f);
 }
 
-Uint8SampleConverter::Uint8SampleConverter(std::unique_ptr<SampleReader> reader)
-    : SampleConverter(std::move(reader)) {}
-void Uint8SampleConverter::read(float *arr, int num) {
-    // Use the last part of the array as a scratch buffer
-    uint8_t *scratch = ((uint8_t *)&arr[num]) - num;
-    reader->read(scratch, sizeof(uint8_t) * num);
-    // Shift from 0 - 255 to -128 - 127
-    for (int i = 0; i < num; i++) {
-        scratch[i] ^= 0x80;
+SampleConverterBase::SampleConverterBase(std::unique_ptr<SampleReader> reader)
+    : reader(std::move(reader)) {}
+
+template <typename T>
+SampleConverter<T>::SampleConverter(std::unique_ptr<SampleReader> reader)
+    : SampleConverterBase(std::move(reader)) {}
+
+template <typename T> struct type_ {
+    using type = T;
+};
+
+template <typename T> void convert(float *arr, T *scratch, float scale, size_t num) {
+    arr = std::assume_aligned<64>(arr);
+    scratch = std::assume_aligned<64>(scratch);
+    [[assume(num % (64 / sizeof(T)) == 0)]];
+    [[assume(num > 0)]]
+    for (size_t i = 0; i < num; i++) {
+        if constexpr (std::is_unsigned<T>::value) {
+            scratch[i] = scratch[i] ^ ((T)1 << (sizeof(T) * 8 - 1));
+        }
+        arr[i] = ((float)scratch[i]) / scale;
     }
-    volk_8i_s32f_convert_32f(arr, (int8_t *)scratch, 128, num);
 }
 
-Int8SampleConverter::Int8SampleConverter(std::unique_ptr<SampleReader> reader)
-    : SampleConverter(std::move(reader)) {}
-void Int8SampleConverter::read(float *arr, int num) {
+template <typename T> void SampleConverter<T>::read(float *arr, int num) {
     // Use the last part of the array as a scratch buffer
-    int8_t *scratch = ((int8_t *)&arr[num]) - num;
-    reader->read(scratch, sizeof(int8_t) * num);
-    volk_8i_s32f_convert_32f(arr, scratch, 128, num);
-}
-
-Uint16SampleConverter::Uint16SampleConverter(
-    std::unique_ptr<SampleReader> reader)
-    : SampleConverter(std::move(reader)) {}
-void Uint16SampleConverter::read(float *arr, int num) {
-    // Use the last part of the array as a scratch buffer
-    uint16_t *scratch = ((uint16_t *)&arr[num]) - num;
-    reader->read(scratch, sizeof(uint16_t) * num);
-    // Shift the ranges from unsigned to signed
-    for (int i = 0; i < num; i++) {
-        scratch[i] ^= 0x8000;
+    T *scratch;
+    if (sizeof(T) > sizeof(float)) {
+        scratch = new T[num];
+    } else {
+        scratch = ((T *)&arr[num]) - num;
     }
-    volk_16i_s32f_convert_32f(arr, (int16_t *)scratch, 65536, num);
+    reader->read(scratch, sizeof(T) * num);
+
+    auto constexpr static unsigned_type = []() {
+        if constexpr (std::is_unsigned<T>::value) {
+            return type_<typename std::make_signed<T>::type>{};
+        } else {
+            return type_<T>{};
+        }
+    };
+    typedef typename decltype(unsigned_type())::type T_signed;
+    constexpr float scale = []() {
+        if constexpr (std::is_integral<T>::value) {
+            return (float)std::numeric_limits<T_signed>::max() + 1.;
+        } else {
+            return 1.;
+        }
+    }();
+    convert(arr, scratch, scale, num);
+    if (sizeof(T) > sizeof(float)) {
+        delete[] scratch;
+    }
 }
 
-Int16SampleConverter::Int16SampleConverter(std::unique_ptr<SampleReader> reader)
-    : SampleConverter(std::move(reader)) {}
-void Int16SampleConverter::read(float *arr, int num) {
-    // Use the last part of the array as a scratch buffer
-    int16_t *scratch = ((int16_t *)&arr[num]) - num;
-    reader->read(scratch, sizeof(int16_t) * num);
-    volk_16i_s32f_convert_32f(arr, scratch, 32768, num);
-}
-
-Float32SampleConverter::Float32SampleConverter(
-    std::unique_ptr<SampleReader> reader)
-    : SampleConverter(std::move(reader)) {}
-void Float32SampleConverter::read(float *arr, int num) {
-    reader->read(arr, sizeof(float) * num);
-}
-
-Float64SampleConverter::Float64SampleConverter(
-    std::unique_ptr<SampleReader> reader)
-    : SampleConverter(std::move(reader)) {}
-void Float64SampleConverter::read(float *arr, int num) {
-    std::vector<double> input_arr(num);
-    reader->read(input_arr.data(), sizeof(double) * num);
-    volk_64f_convert_32f(arr, input_arr.data(), num);
-}
+template class SampleConverter<uint8_t>;
+template class SampleConverter<int8_t>;
+template class SampleConverter<uint16_t>;
+template class SampleConverter<int16_t>;
+template class SampleConverter<uint32_t>;
+template class SampleConverter<int32_t>;
+template class SampleConverter<uint64_t>;
+template class SampleConverter<int64_t>;
+template class SampleConverter<float>;
+template class SampleConverter<double>;

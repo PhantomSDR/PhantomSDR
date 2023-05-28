@@ -1,40 +1,51 @@
 #include "waterfallcompression.h"
 
-#include <zstd.h>
-#include <boost/container/static_vector.hpp>
+#include <boost/container/small_vector.hpp>
+#include <iostream>
 
-void WaterfallEncoder::send_packet(void* packet, size_t bytes) {
-    m_server->send(hdl, packet, bytes,
-                   websocketpp::frame::opcode::binary);
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+
+void WaterfallEncoder::send_packet(void *packet, size_t bytes) {
+    sender.send_binary_packet(hdl, packet, bytes);
 }
 
-int ZstdEncoder::send(const void *buffer, size_t bytes, unsigned current_frame,
-                      int l, int r) {
-    
-    uint8_t packet[bytes * 2];
-    uint32_t *header = (uint32_t*)packet;
-    header[0] = l;
-    header[1] = r;
-    memcpy(packet, header, 8);
+void WaterfallEncoder::set_data(uint64_t frame_num, int l, int r) {
+    header.frame_num = frame_num;
+    header.l = l;
+    header.r = r;
+}
+ZstdEncoder::ZstdEncoder(connection_hdl hdl, PacketSender &sender,
+                         int waterfall_size)
+    : WaterfallEncoder(hdl, sender) {
+    stream = ZSTD_createCStream();
+}
+ZstdEncoder::~ZstdEncoder() { ZSTD_freeCStream(stream); }
 
-    int offset = 8;
-    size_t compressed_size = ZSTD_compress(
-        packet + offset, bytes * 2 - offset, buffer, bytes, 1);
-    this->send_packet(packet, compressed_size + offset);
+int ZstdEncoder::send(const void *buffer, size_t bytes) {
+    boost::container::small_vector<uint8_t, 4096> packet;
+    packet.resize(ZSTD_compressBound(bytes));
+    ZSTD_inBuffer header_buf = {&header, sizeof(header), 0};
+    ZSTD_inBuffer data = {buffer, bytes, 0};
+    ZSTD_outBuffer packet_out = {packet.data(), packet.size(), 0};
+    ZSTD_compressStream2(stream, &packet_out, &header_buf, ZSTD_e_continue);
+    ZSTD_compressStream2(stream, &packet_out, &data, ZSTD_e_flush);
+    sender.send_binary_packet(hdl, packet_out.dst, packet_out.pos);
     return 0;
 }
 
 #ifdef HAS_LIBAOM
 
-AV1Encoder::AV1Encoder(websocketpp::connection_hdl hdl, server *m_server,
+AV1Encoder::AV1Encoder(connection_hdl hdl, PacketSender &sender,
                        int waterfall_size)
-    : WaterfallEncoder(hdl, m_server), frames{0}, line{0} {
+    : WaterfallEncoder(hdl, sender), frames{0}, line{0} {
     aom_codec_err_t err;
     encoder = aom_codec_av1_cx();
     if (!encoder) {
         std::cout << "no encoder" << '\n';
     }
-    if (!aom_img_alloc(&image, AOM_IMG_FMT_I420, waterfall_size, WATERFALL_COALESCE, 1)) {
+    if (!aom_img_alloc(&image, AOM_IMG_FMT_I420, waterfall_size,
+                       WATERFALL_COALESCE, 1)) {
         std::cout << "no image" << '\n';
     }
     image.monochrome = 1;
@@ -50,7 +61,7 @@ AV1Encoder::AV1Encoder(websocketpp::connection_hdl hdl, server *m_server,
     cfg.g_pass = AOM_RC_ONE_PASS;
     cfg.g_lag_in_frames = 0;
     cfg.rc_end_usage = AOM_CQ;
-    //cfg.rc_target_bitrate = 8;
+    // cfg.rc_target_bitrate = 8;
 
     cfg.rc_max_quantizer = 63 - 50;
     cfg.rc_min_quantizer = 63 - 52;
@@ -63,8 +74,8 @@ AV1Encoder::AV1Encoder(websocketpp::connection_hdl hdl, server *m_server,
     }
     aom_codec_control(&codec, AOME_SET_CPUUSED, 8);
     aom_codec_control(&codec, AOME_SET_CQ_LEVEL, 63 - 51);
-    aom_img_add_metadata(&image, 4, (const uint8_t *)header_multi_u32, (1 + 4 * WATERFALL_COALESCE) * 4,
-                         AOM_MIF_ANY_FRAME);
+    aom_img_add_metadata(&image, 4, (const uint8_t *)header_multi_u32,
+                         (1 + 4 * WATERFALL_COALESCE) * 4, AOM_MIF_ANY_FRAME);
 }
 int AV1Encoder::send(const void *buffer, size_t bytes, unsigned current_frame,
                      int l, int r) {
@@ -81,13 +92,15 @@ int AV1Encoder::send(const void *buffer, size_t bytes, unsigned current_frame,
 
     line++;
     if (line == WATERFALL_COALESCE) {
-        //const aom_metadata_t *metadata = aom_img_get_metadata(&image, 0);
+        // const aom_metadata_t *metadata = aom_img_get_metadata(&image, 0);
         aom_img_remove_metadata(&image);
         header_compressed_u8[0] = 0;
-        size_t metadata_sz = ZSTD_compress(&header_compressed_u8[1], 4 * WATERFALL_COALESCE * 4 * 2, header_multi_u32, 4 * WATERFALL_COALESCE * 4, 5);
-        aom_img_add_metadata(&image, 4, (const uint8_t *)header_compressed_u8, metadata_sz + 1,
-                            AOM_MIF_ANY_FRAME);
-        //memcpy(metadata->payload, header_multi_u32, (1 + 4 * 8) * 4);
+        size_t metadata_sz = ZSTD_compress(
+            &header_compressed_u8[1], 4 * WATERFALL_COALESCE * 4 * 2,
+            header_multi_u32, 4 * WATERFALL_COALESCE * 4, 5);
+        aom_img_add_metadata(&image, 4, (const uint8_t *)header_compressed_u8,
+                             metadata_sz + 1, AOM_MIF_ANY_FRAME);
+        // memcpy(metadata->payload, header_multi_u32, (1 + 4 * 8) * 4);
 
         err = aom_codec_encode(&codec, &image, frames, 1, 0);
         if (err < 0) {

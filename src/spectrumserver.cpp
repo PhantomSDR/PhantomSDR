@@ -1,7 +1,5 @@
 #include "spectrumserver.h"
-#include "audio.h"
 #include "samplereader.h"
-#include "waterfallcompression.h"
 
 #include <cstdio>
 #include <iostream>
@@ -14,14 +12,14 @@ namespace po = boost::program_options;
 #include <toml++/toml.h>
 
 broadcast_server::broadcast_server(
-    std::unique_ptr<SampleConverter> reader, toml::parse_result& config,
+    std::unique_ptr<SampleConverterBase> reader, toml::parse_result &config,
     std::unordered_map<std::string, int64_t> &int_config,
     std::unordered_map<std::string, std::string> &str_config)
     : reader{std::move(reader)}, fft_size{(int)int_config["fft_size"]},
       sps{(int)int_config["sps"]}, basefreq{int_config["frequency"]},
       min_waterfall_fft{(int)int_config["waterfall_size"]},
-      is_real{str_config["signal"] == "real"}, audio_max_sps{(
-                                                   int)int_config["audio_sps"]},
+      is_real{str_config["signal"] == "real"},
+      audio_max_sps{(int)int_config["audio_sps"]},
       fft_threads{(int)int_config["fft_threads"]},
       m_docroot{str_config["htmlroot"]}, running{false},
       show_other_users{int_config["otherusers"] > 0},
@@ -47,7 +45,13 @@ broadcast_server::broadcast_server(
         default_frequency = basefreq + sps / 2;
     }
 
-    default_m = (double)(default_frequency - basefreq) * fft_result_size / sps;
+    if (is_real) {
+        default_m =
+            (double)(default_frequency - basefreq) * fft_result_size * 2 / sps;
+    } else {
+        default_m =
+            (double)(default_frequency - basefreq) * fft_result_size / sps;
+    }
     int offsets_3 = (3000LL) * fft_result_size / sps;
     int offsets_5 = (5000LL) * fft_result_size / sps;
     int offsets_96 = (96000LL) * fft_result_size / sps;
@@ -137,9 +141,10 @@ broadcast_server::broadcast_server(
 #endif
     } else if (accelerator == CPU_mklFFT) {
 #ifdef MKL
-        fft = std::make_unique<mklFFT>(fft_size, fft_threads, downsample_levels);
+        fft =
+            std::make_unique<mklFFT>(fft_size, fft_threads, downsample_levels);
 #else
-        throw "OpenCL support is not compiled in";
+        throw "MKL support is not compiled in";
 #endif
     } else {
         fft = std::make_unique<FFTW>(fft_size, fft_threads, downsample_levels);
@@ -252,7 +257,7 @@ int main(int argc, char **argv) {
     int_config["port"] = config["server"]["port"].value_or(9002);
     str_config["host"] = config["server"]["host"].value_or("0.0.0.0");
     int_config["threads"] = config["server"]["threads"].value_or(1);
-     
+
     std::optional<int> sps = config["input"]["sps"].value<int>();
     if (!sps.has_value()) {
         std::cout << "Missing sample rate" << std::endl;
@@ -324,20 +329,20 @@ int main(int argc, char **argv) {
     freopen(NULL, "rb", stdin);
     std::unique_ptr<SampleReader> reader =
         std::make_unique<FileSampleReader>(stdin);
-    std::unique_ptr<SampleConverter> driver;
+    std::unique_ptr<SampleConverterBase> driver;
 
     if (input_format == "u8") {
-        driver = std::make_unique<Uint8SampleConverter>(std::move(reader));
+        driver = std::make_unique<SampleConverter<uint8_t>>(std::move(reader));
     } else if (input_format == "s8") {
-        driver = std::make_unique<Int8SampleConverter>(std::move(reader));
+        driver = std::make_unique<SampleConverter<int8_t>>(std::move(reader));
     } else if (input_format == "u16") {
-        driver = std::make_unique<Uint16SampleConverter>(std::move(reader));
+        driver = std::make_unique<SampleConverter<uint16_t>>(std::move(reader));
     } else if (input_format == "s16") {
-        driver = std::make_unique<Int16SampleConverter>(std::move(reader));
+        driver = std::make_unique<SampleConverter<int16_t>>(std::move(reader));
     } else if (input_format == "f32") {
-        driver = std::make_unique<Float32SampleConverter>(std::move(reader));
+        driver = std::make_unique<SampleConverter<float>>(std::move(reader));
     } else if (input_format == "f64") {
-        driver = std::make_unique<Float64SampleConverter>(std::move(reader));
+        driver = std::make_unique<SampleConverter<double>>(std::move(reader));
     } else {
         std::cout << "Unknown input format: " << input_format << std::endl;
         return 1;

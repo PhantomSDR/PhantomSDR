@@ -1,9 +1,9 @@
+#include "client.h"
+#include "signal.h"
 #include "spectrumserver.h"
+#include "waterfall.h"
 
-#define RAPIDJSON_HAS_STDSTRING 1
-#include "rapidjson/document.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/writer.h"
+#include "glaze/glaze.hpp"
 
 void broadcast_server::on_open(connection_hdl hdl) {
     server::connection_ptr con = m_server.get_con_from_hdl(hdl);
@@ -38,193 +38,208 @@ void broadcast_server::send_basic_info(connection_hdl hdl) {
     // Example format:
     // "{\"sps\":1000000,\"fft_size\":65536,\"clientid\":\"123\",\"basefreq\":123}";
     // Craft a JSON string for the client
-    rapidjson::Document d;
-    d.SetObject();
-    d.AddMember("sps", sps, d.GetAllocator());
-    d.AddMember("audio_max_sps", audio_max_sps, d.GetAllocator());
-    d.AddMember("audio_max_fft", audio_max_fft_size, d.GetAllocator());
-    d.AddMember("fft_size", fft_size, d.GetAllocator());
-    d.AddMember("fft_result_size", fft_result_size, d.GetAllocator());
-    d.AddMember("waterfall_size", min_waterfall_fft, d.GetAllocator());
+    glz::json_t json = {
+        {"sps", sps},
+        {"audio_max_sps", audio_max_sps},
+        {"audio_max_fft", audio_max_fft_size},
+        {"fft_size", fft_size},
+        {"fft_result_size", fft_result_size},
+        {"waterfall_size", min_waterfall_fft},
+        {"basefreq", basefreq},
+        {"total_bandwidth", is_real ? sps / 2 : sps},
+        {"defaults",
+         {{"frequency", default_frequency},
+          {"modulation", default_mode_str},
+          {"l", default_l},
+          {"m", default_m},
+          {"r", default_r}}},
+        {"waterfall_compression", waterfall_compression_str},
+        {"audio_compression", audio_compression_str},
+    };
+    m_server.send(hdl, glz::write_json(json), websocketpp::frame::opcode::text);
+}
 
-    d.AddMember("basefreq", basefreq, d.GetAllocator());
-    if (is_real) {
-        d.AddMember("total_bandwidth", sps / 2, d.GetAllocator());
-    } else {
-        d.AddMember("total_bandwidth", sps, d.GetAllocator());
+void broadcast_server::send_binary_packet(
+    connection_hdl hdl,
+    const std::initializer_list<std::pair<const void *, size_t>> &bufs) {
+    auto con = m_server.get_con_from_hdl(hdl);
+    auto total_size =
+        std::accumulate(bufs.begin(), bufs.end(), 0,
+                        [](size_t acc, auto &p) { return acc + p.second; });
+    auto msg_ptr =
+        con->get_message(websocketpp::frame::opcode::binary, total_size);
+    for (auto &[buf, len] : bufs) {
+        msg_ptr->append_payload(buf, len);
     }
-
-    rapidjson::Value defaults(rapidjson::kObjectType);
-    defaults.AddMember("frequency", default_frequency, d.GetAllocator());
-    defaults.AddMember("modulation", default_mode_str, d.GetAllocator());
-    defaults.AddMember("l", default_l, d.GetAllocator());
-    defaults.AddMember("m", default_m, d.GetAllocator());
-    defaults.AddMember("r", default_r, d.GetAllocator());
-
-    d.AddMember("waterfall_compression", waterfall_compression_str,
-                d.GetAllocator());
-    d.AddMember("audio_compression", audio_compression_str, d.GetAllocator());
-
-    d.AddMember("defaults", defaults, d.GetAllocator());
-
-    // Stringify and send basic info
-    rapidjson::StringBuffer json_buffer;
-    json_buffer.Clear();
-    rapidjson::Writer<rapidjson::StringBuffer> writer(json_buffer);
-    d.Accept(writer);
-
-    m_server.send(hdl, json_buffer.GetString(),
-                  websocketpp::frame::opcode::text);
+    con->send(msg_ptr);
+}
+void broadcast_server::send_binary_packet(connection_hdl hdl, const void *buf,
+                                          size_t len) {
+    m_server.send(hdl, buf, len, websocketpp::frame::opcode::binary);
+}
+void broadcast_server::send_text_packet(
+    connection_hdl hdl, const std::initializer_list<std::string> &data) {
+    auto con = m_server.get_con_from_hdl(hdl);
+    auto total_size = std::accumulate(
+        data.begin(), data.end(), 0,
+        [](size_t acc, const std::string &str) { return acc + str.size(); });
+    auto msg_ptr =
+        con->get_message(websocketpp::frame::opcode::text, total_size);
+    for (auto &str : data) {
+        msg_ptr->append_payload(str);
+    }
+    con->send(msg_ptr);
+}
+void broadcast_server::send_text_packet(connection_hdl hdl,
+                                        const std::string &str) {
+    m_server.send(hdl, str, websocketpp::frame::opcode::text);
+}
+void broadcast_server::log(connection_hdl hdl, const std::string &str) {
+    m_server.get_alog().write(websocketpp::log::alevel::app, str);
+}
+std::string broadcast_server::ip_from_hdl(connection_hdl hdl) {
+    return m_server.get_con_from_hdl(hdl)->get_remote_endpoint();
 }
 
 void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg,
-                                  std::shared_ptr<conn_data> &d) {
+                                  std::shared_ptr<Client> &client) {
 
     // Limit the amount of data received
     std::string payload = msg->get_payload().substr(0, 1024);
-    std::string ip = m_server.get_con_from_hdl(hdl)->get_remote_endpoint();
+    client->on_message(payload);
+}
 
-    // Parse the JSON
-    rapidjson::Document document;
-    document.Parse(payload.c_str());
-    conn_type type = d->type;
+void broadcast_server::on_open_signal(connection_hdl hdl,
+                                      conn_type signal_type) {
+    send_basic_info(hdl);
 
-    // Error handing, ignore unexpected inputs
-    if (document.HasParseError()) {
-        return;
+    int audio_fft_size = ceil((double)audio_max_sps * fft_size / sps / 4.) * 4;
+    std::shared_ptr<AudioClient> client = std::make_shared<AudioClient>(
+        hdl, *this, audio_compression, is_real, audio_fft_size, audio_max_sps,
+        fft_result_size, signal_slices, signal_slice_mtx);
+
+    client->set_audio_demodulation(default_mode);
+    {
+        std::scoped_lock lg(signal_slice_mtx);
+        auto it = signal_slices.insert({{0, 0}, client});
+        client->it = it;
     }
-    std::ostringstream command_log;
-    std::string type_str;
-    if (type == SIGNAL) {
-        type_str = "Signal";
-    } else if (type == AUDIO) {
-        type_str = "Audio";
-    } else if (type == WATERFALL) {
-        type_str = "Waterfall";
-    } else if (type == EVENTS) {
-        type_str = "Events";
+    // Default slice
+    client->set_audio_range(default_l, default_m, default_r);
+
+    server::connection_ptr con = m_server.get_con_from_hdl(hdl);
+
+    con->set_close_handler(std::bind(&AudioClient::on_close, client));
+    con->set_message_handler(std::bind(
+        &broadcast_server::on_message, this, std::placeholders::_1,
+        std::placeholders::_2, std::static_pointer_cast<Client>(client)));
+}
+
+void broadcast_server::signal_task() {
+    // For IQ input, the lowest frequency is in the middle
+    while (running) {
+        // Wait for the FFT to be ready
+        // std::shared_lock lk(fft_mutex);
+        // fft_processed.wait(lk, [&] { return signal_processing; });
+        signal_loop();
+        signal_processing = 0;
     }
-    command_log << ip;
-    command_log << " [" << type_str << " User: " << d->user_id << "]";
-    command_log << " Message: " + payload;
-    m_server.get_alog().write(websocketpp::log::alevel::app, command_log.str());
+}
 
-    if (!document.HasMember("cmd")) {
-        return;
+// Iterates through the client list to send the slices
+void broadcast_server::signal_loop() {
+    int base_idx = 0;
+    if (!is_real) {
+        base_idx = fft_size / 2 + 1;
     }
-    // Command to change to a different slice
-    if (document["cmd"] == "window") {
-        if (!document.HasMember("l") || !document.HasMember("r")) {
-            return;
-        }
-        if (!document["l"].IsInt() || !document["r"].IsInt()) {
-            return;
-        }
-        int new_l = document["l"].GetInt();
-        int new_r = document["r"].GetInt();
-        if (new_l < 0 || new_r > fft_result_size) {
-            return;
-        }
-        if (type == SIGNAL || type == AUDIO) {
-            if (!document.HasMember("m") || !document["m"].IsNumber()) {
-                return;
-            }
-            if (new_r - new_l > audio_max_fft_size) {
-                return;
-            }
-            // Change the data structures to reflect the changes
-            {
-                std::scoped_lock lk1(signal_slice_mtx);
-                auto it = d->it;
-
-                auto node = signal_slices.extract(it);
-                node.key() = {new_l, new_r};
-                it = signal_slices.insert(std::move(node));
-
-                double new_m = document["m"].GetDouble();
-                d->it = it;
-                d->l = new_l;
-                d->r = new_r;
-                d->audio_mid = new_m;
-
-                if (show_other_users) {
-                    std::scoped_lock lk3(signal_changes_mtx);
-                    signal_changes[d->unique_id] = {new_l, new_m, new_r};
+    std::scoped_lock lg(signal_slice_mtx);
+    // Send the apprioriate signal slice to the client
+    for (auto &[slice, data] : signal_slices) {
+        auto &[l_idx, r_idx] = slice;
+        // If the client is slow, avoid unnecessary buffering and drop the
+        // audio
+        if (m_server.get_con_from_hdl(data->hdl)->get_buffered_amount() <=
+            1000000) {
+            if (server_threads == 1) {
+                data->send_audio(
+                    &fft_buffer[(l_idx + base_idx) % fft_result_size], frame_num);
+            } else {
+                if (!data->processing) {
+                    data->processing = 1;
+                    m_server.get_io_service().post(
+                        m_server.get_con_from_hdl(data->hdl)
+                            ->get_strand()
+                            ->wrap(std::bind(&AudioClient::send_audio, data,
+                                             &fft_buffer[(l_idx + base_idx) %
+                                                         fft_result_size], frame_num)));
                 }
             }
-        } else if (type == WATERFALL) {
+        }
+    }
+    signal_processing = 0;
+}
 
-            // Calculate which level should it be at
-            // Each level decreases the amount of points available by 2
-            // Use floating point to prevent integer rounding errors
-            // At most min_waterfall_fft samples shall be sent
-            float new_l_f = new_l;
-            float new_r_f = new_r;
-            int new_level = downsample_levels - 1;
-            for (int i = 0; i < downsample_levels; i++) {
-                new_level = i;
-                if (new_r_f - new_l_f <= min_waterfall_fft) {
-                    break;
+void broadcast_server::on_open_waterfall(connection_hdl hdl) {
+    send_basic_info(hdl);
+
+    // Set default to the entire spectrum
+    std::shared_ptr<WaterfallClient> client = std::make_shared<WaterfallClient>(
+        hdl, *this, waterfall_compression, min_waterfall_fft, waterfall_slices,
+        waterfall_slice_mtx);
+    {
+        std::scoped_lock lk(waterfall_slice_mtx[0]);
+        auto it = waterfall_slices[0].insert({{0, min_waterfall_fft}, client});
+        client->it = it;
+    }
+    client->set_waterfall_range(downsample_levels - 1, 0, min_waterfall_fft);
+
+    server::connection_ptr con = m_server.get_con_from_hdl(hdl);
+    con->set_close_handler(std::bind(&WaterfallClient::on_close, client));
+    con->set_message_handler(std::bind(
+        &broadcast_server::on_message, this, std::placeholders::_1,
+        std::placeholders::_2, std::static_pointer_cast<Client>(client)));
+}
+
+void broadcast_server::waterfall_loop(int8_t *fft_power_quantized) {
+
+    for (int i = 0; i < downsample_levels; i++) {
+
+        // Iterate over each waterfall client and send each slice
+        std::scoped_lock lg(waterfall_slice_mtx[i]);
+        for (auto &[slice, data] : waterfall_slices[i]) {
+            auto &[l_idx, r_idx] = slice;
+            // If the client is slow, avoid unnecessary buffering and
+            // drop the packet
+            if (m_server.get_con_from_hdl(data->hdl)->get_buffered_amount() <=
+                1000000) {
+                if (server_threads == 1) {
+                    data->send_waterfall(&fft_power_quantized[l_idx], frame_num);
+                } else {
+                    if (!data->processing) {
+                        data->processing = 1;
+                        m_server.get_io_service().post(
+                            m_server.get_con_from_hdl(data->hdl)
+                                ->get_strand()
+                                ->wrap(std::bind(
+                                    &WaterfallClient::send_waterfall, data,
+                                    &fft_power_quantized[l_idx], frame_num)));
+                    }
                 }
-                new_l_f /= 2;
-                new_r_f /= 2;
             }
-            new_l = round(new_l_f);
-            new_r = round(new_r_f);
-
-            // Since the parameters are modified, output the new parameters
-
-            {
-                std::ostringstream command_log;
-                command_log << ip;
-                command_log << " [Waterfall User: " << d->user_id << "]";
-                command_log << " Waterfall Level: " << new_level;
-                command_log << " Waterfall L: " << new_l;
-                command_log << " Waterfall R: " << new_r;
-                m_server.get_alog().write(websocketpp::log::alevel::app,
-                                          command_log.str());
-            }
-
-            // Change the waterfall data structures to reflect the changes
-            auto it = d->it;
-            int level = d->level;
-            auto node = ([&] {
-                std::scoped_lock lkl1(waterfall_slice_mtx[level]);
-                return waterfall_slices[level].extract(it);
-            })();
-
-            {
-                std::scoped_lock lkl2(waterfall_slice_mtx[new_level]);
-                node.key() = {new_l, new_r};
-                it = waterfall_slices[new_level].insert(std::move(node));
-            }
-            d->it = it;
-            d->level = new_level;
-            d->l = new_l;
-            d->r = new_r;
         }
-    } else if (document["cmd"] == "demodulation") {
-        if (!document.HasMember("demodulation") ||
-            !document["demodulation"].IsString()) {
-            return;
-        }
-        std::string demodulation_str = document["demodulation"].GetString();
-        // Update the demodulation type
-        if (demodulation_str == "USB") {
-            d->demodulation = USB;
-        } else if (demodulation_str == "LSB") {
-            d->demodulation = LSB;
-        } else if (demodulation_str == "AM") {
-            d->demodulation = AM;
-        } else if (demodulation_str == "FM") {
-            d->demodulation = FM;
-        }
-    } else if (document["cmd"] == "userid") {
-        if (!document.HasMember("userid") || !document["userid"].IsString()) {
-            return;
-        }
-        // Used for correlating between signal and waterfall sockets
-        std::string user_id = document["userid"].GetString();
-        d->user_id = user_id.substr(0, 32);
+
+        // Prevent overwrite of previous level's quantized waterfall
+        fft_power_quantized += (fft_result_size >> i);
+    }
+    waterfall_processing = 0;
+}
+void broadcast_server::waterfall_task() {
+    while (running) {
+        // std::shared_lock lk(fft_mutex);
+        //  Wait for the FFT to be ready
+        //  fft_processed.wait(lk, [&] { return waterfall_processing; });
+        //  waterfall_loop(fft_power, fft_power_quantized_full,
+        //  fft_power_scratch);
+        waterfall_processing = 0;
     }
 }

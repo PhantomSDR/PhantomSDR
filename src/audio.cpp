@@ -1,23 +1,24 @@
 #include "audio.h"
 
-void AudioEncoder::set_data(int l, double m, int r, double pwr) {
-    this->header_u32[0] = l;
-    this->header_u32[1] = r;
-    this->header_d[1] = m;
-    this->header_d[2] = pwr;
+AudioEncoder::AudioEncoder(websocketpp::connection_hdl hdl,
+                           PacketSender &sender)
+    : hdl{hdl}, sender{sender}, packet(32, 0) {
+    set_data(0, 0, 0, 0, 0);
+}
+
+void AudioEncoder::set_data(uint64_t frame_num, int l, double m, int r, double pwr) {
+    header.frame_num = frame_num;
+    header.l = l;
+    header.r = r;
+    header.m = m;
+    header.pwr = pwr;
 }
 
 int AudioEncoder::send(const void *buffer, size_t bytes,
                        unsigned current_frame) {
     try {
-        // Header size
-        size_t packet_size = bytes + 3 * 8;
-        uint8_t packet[packet_size];
-        // Construct packet
-        memcpy(packet, this->header_u32, 3 * 8);
-        memcpy(packet + (3 * 8), buffer, bytes);
-        m_server->send(hdl, packet, packet_size,
-                       websocketpp::frame::opcode::binary);
+        sender.send_binary_packet(hdl,
+                                  {{&header, sizeof(header)}, {buffer, bytes}});
         return 0;
     } catch (...) {
         return 1;
@@ -41,9 +42,9 @@ int FlacEncoder::finish_encoder() { return this->finish(); }
 FlacEncoder::~FlacEncoder() { this->finish(); }
 
 #ifdef HAS_LIBOPUS
-OpusEncoder::OpusEncoder(websocketpp::connection_hdl hdl, server *m_server,
+OpusEncoder::OpusEncoder(websocketpp::connection_hdl hdl, PacketSender &sender,
                          int samplerate)
-    : AudioEncoder(hdl, m_server) {
+    : AudioEncoder(hdl, sender) {
     int err;
     samplerate = std::min(samplerate, 48000);
     encoder = opus_encoder_create(samplerate, 1, OPUS_APPLICATION_AUDIO, &err);
@@ -65,7 +66,7 @@ int OpusEncoder::process(int32_t *data, size_t size) {
             send(packet, packet_sz, 0);
         }
         partial_frames.erase(partial_frames.begin(),
-                                           partial_frames.begin() + frame_size);
+                             partial_frames.begin() + frame_size);
     }
     return 0;
 }

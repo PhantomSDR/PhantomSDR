@@ -18,50 +18,21 @@ class FileSampleReader : public SampleReader {
     int read(void *arr, int num);
 };
 
-class SampleConverter {
+class SampleConverterBase {
   protected:
     std::unique_ptr<SampleReader> reader;
 
   public:
-    SampleConverter(std::unique_ptr<SampleReader> reader);
+    SampleConverterBase(std::unique_ptr<SampleReader> reader);
     virtual void read(float *arr, int num) = 0;
+    virtual ~SampleConverterBase() {}
+};
+
+template <typename T> class SampleConverter : public SampleConverterBase {
+  public:
+    SampleConverter(std::unique_ptr<SampleReader> reader);
+    virtual void read(float *arr, int num);
     virtual ~SampleConverter() {}
-};
-
-class Int8SampleConverter : public SampleConverter {
-  public:
-    Int8SampleConverter(std::unique_ptr<SampleReader> reader);
-    void read(float *arr, int num);
-};
-
-class Uint8SampleConverter : public SampleConverter {
-  public:
-    Uint8SampleConverter(std::unique_ptr<SampleReader> reader);
-    void read(float *arr, int num);
-};
-
-class Int16SampleConverter : public SampleConverter {
-  public:
-    Int16SampleConverter(std::unique_ptr<SampleReader> reader);
-    void read(float *arr, int num);
-};
-
-class Uint16SampleConverter : public SampleConverter {
-  public:
-    Uint16SampleConverter(std::unique_ptr<SampleReader> reader);
-    void read(float *arr, int num);
-};
-
-class Float32SampleConverter : public SampleConverter {
-  public:
-    Float32SampleConverter(std::unique_ptr<SampleReader> reader);
-    void read(float *arr, int num);
-};
-
-class Float64SampleConverter : public SampleConverter {
-  public:
-    Float64SampleConverter(std::unique_ptr<SampleReader> reader);
-    void read(float *arr, int num);
 };
 
 #endif

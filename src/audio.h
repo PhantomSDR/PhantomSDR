@@ -2,7 +2,6 @@
 #define AUDIO_H
 
 #include <string>
-
 #include <vector>
 
 #include "FLAC++/encoder.h"
@@ -12,13 +11,12 @@
 #include <opus/opus.h>
 #endif
 
-#include "websocket.h"
+#include "client.h"
 
 class AudioEncoder {
   public:
-    AudioEncoder(websocketpp::connection_hdl hdl, server *m_server)
-        : hdl{hdl}, m_server{m_server}, packet(32, 0) {}
-    void set_data(int l, double m, int r, double pwr);
+    AudioEncoder(websocketpp::connection_hdl hdl, PacketSender& sender);
+    void set_data(uint64_t frame_num, int l, double m, int r, double pwr);
     virtual int process(int32_t *data, size_t size) = 0;
     virtual int finish_encoder() = 0;
     virtual ~AudioEncoder() {}
@@ -26,19 +24,21 @@ class AudioEncoder {
   protected:
     int send(const void *buffer, size_t bytes, unsigned current_frame);
     websocketpp::connection_hdl hdl;
-    server *m_server;
+    PacketSender& sender;
 
-    union {
-        uint32_t header_u32[6];
-        double header_d[3];
-    };
+    struct {
+        uint64_t frame_num;
+        uint32_t l, r;
+        double m, pwr;
+    } header;
+    
     std::vector<uint8_t> packet;
 };
 
 class FlacEncoder : public AudioEncoder, public FLAC::Encoder::Stream {
   public:
-    FlacEncoder(websocketpp::connection_hdl hdl, server *m_server)
-        : AudioEncoder(hdl, m_server), FLAC::Encoder::Stream() {}
+    FlacEncoder(websocketpp::connection_hdl hdl, PacketSender& sender)
+        : AudioEncoder(hdl, sender), FLAC::Encoder::Stream() {}
     ~FlacEncoder();
 
   protected:
@@ -52,7 +52,7 @@ class FlacEncoder : public AudioEncoder, public FLAC::Encoder::Stream {
 #ifdef HAS_LIBOPUS
 class OpusEncoder : public AudioEncoder {
   public:
-    OpusEncoder(websocketpp::connection_hdl hdl, server *m_server, int samplerate);
+    OpusEncoder(websocketpp::connection_hdl hdl, PacketSender& sender, int samplerate);
     ~OpusEncoder();
 
   protected:

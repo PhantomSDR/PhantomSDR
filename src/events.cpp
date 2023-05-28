@@ -1,108 +1,82 @@
 #include "spectrumserver.h"
 
-#define RAPIDJSON_HAS_STDSTRING 1
-#include "rapidjson/allocators.h"
-#include "rapidjson/document.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/writer.h"
+#include "glaze/glaze.hpp"
+
+/* clang-format off */
+struct event_info {
+    size_t waterfall_clients;
+    size_t signal_clients;
+    std::unordered_map<std::string, std::tuple<int, double, int>> signal_changes;
+};
+
+template <> 
+struct glz::meta<event_info>
+{
+    using T = event_info;
+    static constexpr auto value = object(
+        "waterfall_clients", &T::waterfall_clients,
+        "signal_clients", &T::signal_clients,
+        "signal_changes", &T::signal_changes
+    );
+};
+/* clang-format on */
 
 std::string broadcast_server::get_event_info() {
     if (!signal_changes.size()) {
         return "";
     }
-    rapidjson::Document d;
-    d.SetObject();
-
-    rapidjson::Document::AllocatorType &allocator = d.GetAllocator();
-
+    event_info info;
     // Put in the number of clients connected
-    size_t waterfall_users = 0;
-    for (auto &it : waterfall_slices) {
-        waterfall_users += it.size();
-    }
-    d.AddMember("waterfall_clients", waterfall_users, allocator);
-    d.AddMember("signal_clients", signal_slices.size(), allocator);
-
-    rapidjson::Value changes(rapidjson::kObjectType);
-
+    info.waterfall_clients = std::accumulate(
+        waterfall_slices.begin(), waterfall_slices.end(), 0,
+        [](size_t acc, const auto &it) { return acc + it.size(); });
+    info.signal_clients = signal_slices.size();
     if (show_other_users) {
         std::scoped_lock lk(signal_changes_mtx);
-        for (auto &[userid, range] : signal_changes) {
-            rapidjson::Value new_range(rapidjson::kArrayType);
-            auto &[l, m, r] = range;
-            new_range.PushBack(rapidjson::Value(l).Move(), allocator);
-            new_range.PushBack(rapidjson::Value(m).Move(), allocator);
-            new_range.PushBack(rapidjson::Value(r).Move(), allocator);
-
-            changes.AddMember(
-                rapidjson::Value(userid.c_str(), allocator).Move(), new_range,
-                allocator);
-        }
+        info.signal_changes = signal_changes;
         signal_changes.clear();
     }
-
-    d.AddMember("signal_changes", changes, allocator);
-
-    // Stringify and send basic info
-    rapidjson::StringBuffer json_buffer;
-    json_buffer.Clear();
-    rapidjson::Writer<rapidjson::StringBuffer> writer(json_buffer);
-    d.Accept(writer);
-
-    return json_buffer.GetString();
+    return glz::write_json(info);
 }
 
 std::string broadcast_server::get_initial_state_info() {
 
-    rapidjson::Document d;
-    d.SetObject();
-
-    rapidjson::Document::AllocatorType &allocator = d.GetAllocator();
-
-    rapidjson::Value changes(rapidjson::kObjectType);
-
-    for (auto &[slice, data] : signal_slices) {
-        rapidjson::Value new_range(rapidjson::kArrayType);
-        new_range.PushBack(rapidjson::Value(data->l).Move(), allocator);
-        new_range.PushBack(rapidjson::Value(data->audio_mid).Move(),
-                           allocator);
-        new_range.PushBack(rapidjson::Value(data->r).Move(), allocator);
-
-        changes.AddMember(
-            rapidjson::Value(data->unique_id.c_str(), allocator).Move(),
-            new_range, allocator);
+    event_info info;
+    // Put in the number of clients connected
+    info.waterfall_clients = std::accumulate(
+        waterfall_slices.begin(), waterfall_slices.end(), 0,
+        [](size_t acc, const auto &it) { return acc + it.size(); });
+    info.signal_clients = signal_slices.size();
+    if (show_other_users) {
+        std::scoped_lock lk(signal_slice_mtx);
+        info.signal_changes.reserve(signal_slices.size());
+        for (auto &[slice, data] : signal_slices) {
+            info.signal_changes.emplace(data->get_unique_id(),
+                                        std::tuple<int, double, int>{
+                                            data->l, data->audio_mid, data->r});
+        }
     }
-    d.AddMember("signal_list", changes, allocator);
-
-    // Stringify and send basic info
-    rapidjson::StringBuffer json_buffer;
-    json_buffer.Clear();
-    rapidjson::Writer<rapidjson::StringBuffer> writer(json_buffer);
-    d.Accept(writer);
-
-    return json_buffer.GetString();
+    return glz::write_json(info);
 }
 void broadcast_server::on_open_events(connection_hdl hdl) {
     events_connections.insert(hdl);
     m_server.send(hdl, get_initial_state_info(),
                   websocketpp::frame::opcode::text);
-    
-    std::shared_ptr<conn_data> d = std::make_shared<conn_data>();
-    d->hdl = hdl;
-    d->type = EVENTS;
 
     server::connection_ptr con = m_server.get_con_from_hdl(hdl);
-    con->set_close_handler(std::bind(&broadcast_server::on_close_events, this, std::placeholders::_1));
-    con->set_message_handler(std::bind(&broadcast_server::on_message, this, std::placeholders::_1, std::placeholders::_2, d));
+    con->set_close_handler(std::bind(&broadcast_server::on_close_events, this,
+                                     std::placeholders::_1));
+    con->set_message_handler([](connection_hdl hdl, server::message_ptr msg) {
+        // Ignore messages
+    });
 }
 void broadcast_server::on_close_events(connection_hdl hdl) {
     events_connections.erase(hdl);
 }
 
 void broadcast_server::set_event_timer() {
-    m_timer = m_server.set_timer(
-        1000, std::bind(&broadcast_server::on_timer, this,
-                                     std::placeholders::_1));
+    m_timer = m_server.set_timer(1000, std::bind(&broadcast_server::on_timer,
+                                                 this, std::placeholders::_1));
 }
 
 void broadcast_server::on_timer(websocketpp::lib::error_code const &ec) {

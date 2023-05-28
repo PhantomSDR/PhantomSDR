@@ -1,52 +1,53 @@
-#ifndef WATERFALL_H
-#define WATERFALL_H
+#ifndef WATERFALLCOMPRESSION_H
+#define WATERFALLCOMPRESSION_H
 
-#include "websocket.h"
+#include "client.h"
 
 #ifdef HAS_LIBAOM
 #include "aom/aom_encoder.h"
 #include "aom/aomcx.h"
 #endif
 
+#include <zstd.h>
+
 #define WATERFALL_COALESCE 8
 
 class WaterfallEncoder {
   public:
-    WaterfallEncoder(websocketpp::connection_hdl hdl, server *m_server)
-        : hdl{hdl}, m_server{m_server} {}
-    virtual int send(const void *buffer, size_t bytes, unsigned current_frame,
-                     int l, int r) = 0;
+    WaterfallEncoder(connection_hdl hdl, PacketSender &sender)
+        : hdl{hdl}, sender{sender} {}
+    virtual int send(const void *buffer, size_t bytes) = 0;
+    void set_data(uint64_t frame_num, int l, int r);
     virtual ~WaterfallEncoder(){};
 
   protected:
     void send_packet(void *packet, size_t bytes);
     websocketpp::connection_hdl hdl;
-    server *m_server;
+    PacketSender &sender;
 
-    uint32_t header_u32[2];
+    struct {
+        uint64_t frame_num;
+        uint32_t l, r;
+    } header;
 };
 
 class ZstdEncoder : public WaterfallEncoder {
   public:
-    ZstdEncoder(websocketpp::connection_hdl hdl, server *m_server,
-                int waterfall_size)
-        : WaterfallEncoder(hdl, m_server), last(waterfall_size, 0) {}
-    int send(const void *buffer, size_t bytes, unsigned current_frame, int l,
-             int r);
-    ~ZstdEncoder() {}
+    ZstdEncoder(connection_hdl hdl, PacketSender &sender, int waterfall_size);
+    int send(const void *buffer, size_t bytes);
+    virtual ~ZstdEncoder();
 
   protected:
-    std::vector<uint8_t> last;
+    ZSTD_CStream *stream;
 };
 
 #ifdef HAS_LIBAOM
 class AV1Encoder : public WaterfallEncoder {
   public:
-    AV1Encoder(websocketpp::connection_hdl hdl, server *m_server,
-               int waterfall_size);
+    AV1Encoder(connection_hdl hdl, PacketSender &sender, int waterfall_size);
     int send(const void *buffer, size_t bytes, unsigned current_frame, int l,
              int r);
-    ~AV1Encoder();
+    virtual ~AV1Encoder();
 
   protected:
     aom_codec_iface_t *encoder;

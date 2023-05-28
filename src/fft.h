@@ -9,6 +9,7 @@
 #endif
 
 #ifdef CLFFT
+#define CL_HPP_TARGET_OPENCL_VERSION 300
 #include <CL/opencl.hpp>
 #include <clFFT.h>
 #endif
@@ -177,11 +178,17 @@ class clFFT : public FFT {
     cl::Program::Sources sources;
     cl::Program program;
 
-    std::function<cl::compatibility::make_kernel<cl::Buffer, cl::Buffer>::type_> window_real;
-    std::function<cl::compatibility::make_kernel<cl::Buffer, cl::Buffer>::type_> window_complex;
-    std::function<cl::compatibility::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_float, cl_int, cl_int, cl_int>::type_> power_and_quantize;
-    std::function<cl::compatibility::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer, cl_int, cl_int, cl_int>::type_> half_and_quantize;
-    
+    cl::KernelFunctor<cl::Buffer &, cl_int, cl::Buffer &, cl::Buffer &>
+        window_real;
+    cl::KernelFunctor<cl::Buffer &, cl_int, cl::Buffer &, cl::Buffer &>
+        window_complex;
+    cl::KernelFunctor<cl::Buffer &, cl::Buffer &, cl::Buffer &, cl_float,
+                      cl_int, cl_int, cl_int>
+        power_and_quantize;
+    cl::KernelFunctor<cl::Buffer &, cl::Buffer &, cl::Buffer &, cl_int, cl_int,
+                      cl_int>
+        half_and_quantize;
+
     clfftPlanHandle planHandle;
     clfftDim dim;
     size_t clLengths[1];
@@ -189,6 +196,7 @@ class clFFT : public FFT {
 
     clfftLayout inlayout;
     clfftLayout outlayout;
+    std::unordered_map<float *, cl::Buffer> buffers;
     cl::Buffer cl_windowbuf;
     cl::Buffer cl_inbuf;
     cl::Buffer cl_outbuf;

@@ -1,107 +1,99 @@
-#include "spectrumserver.h"
+#include "waterfall.h"
 #include "waterfallcompression.h"
 
-#include <volk/volk.h>
+#include <cmath>
 
-#include <zstd.h>
+WaterfallClient::WaterfallClient(
+    connection_hdl hdl, PacketSender &sender,
+    waterfall_compressor waterfall_compression, int min_waterfall_fft,
+    std::vector<
+        std::multimap<std::pair<int, int>, std::shared_ptr<WaterfallClient>>>
+        &waterfall_slices,
+    std::deque<std::mutex> &waterfall_slice_mtx)
+    : Client(hdl, sender, WATERFALL), min_waterfall_fft{min_waterfall_fft},
+      level{0}, waterfall_slices{waterfall_slices},
+      waterfall_slice_mtx{waterfall_slice_mtx} {
 
-void broadcast_server::on_open_waterfall(connection_hdl hdl) {
-    send_basic_info(hdl);
-
-    // Set default to the entire spectrum
-    std::shared_ptr<conn_data> d = std::make_shared<conn_data>();
-    d->type = WATERFALL;
-    d->hdl = hdl;
-    d->level = downsample_levels - 1;
-    d->l = 0;
-    d->r = min_waterfall_fft;
     if (waterfall_compression == WATERFALL_ZSTD) {
-        d->waterfall_encoder =
-            std::make_unique<ZstdEncoder>(hdl, &m_server, min_waterfall_fft);
+        waterfall_encoder =
+            std::make_unique<ZstdEncoder>(hdl, sender, min_waterfall_fft);
     }
 #ifdef HAS_LIBAOM
     else if (waterfall_compression == WATERFALL_AV1) {
-        d->waterfall_encoder =
-            std::make_unique<AV1Encoder>(hdl, &m_server, min_waterfall_fft);
+        waterfall_encoder =
+            std::make_unique<AV1Encoder>(hdl, sender, min_waterfall_fft);
     }
 #endif
-
-    server::connection_ptr con = m_server.get_con_from_hdl(hdl);
-    con->set_close_handler(std::bind(&broadcast_server::on_close_waterfall,
-                                     this, std::placeholders::_1, d));
-    con->set_message_handler(std::bind(&broadcast_server::on_message, this,
-                                       std::placeholders::_1,
-                                       std::placeholders::_2, d));
-
-    int last_level = downsample_levels - 1;
-    {
-        std::scoped_lock lk(waterfall_slice_mtx[last_level]);
-        auto it =
-            waterfall_slices[last_level].insert({{0, min_waterfall_fft}, d});
-        d->it = it;
-    }
 }
-void broadcast_server::on_close_waterfall(connection_hdl hdl,
-                                          std::shared_ptr<conn_data> &d) {
-    int level = d->level;
+
+void WaterfallClient::set_waterfall_range(int level, int l, int r) {
+
+    // Change the waterfall data structures to reflect the changes
+    auto node = ([&] {
+        std::scoped_lock lk(waterfall_slice_mtx[this->level]);
+        return waterfall_slices[this->level].extract(it);
+    })();
+
     {
         std::scoped_lock lk(waterfall_slice_mtx[level]);
-        waterfall_slices[level].erase(d->it);
+        node.key() = {l, r};
+        it = waterfall_slices[level].insert(std::move(node));
     }
+
+    this->l = l;
+    this->r = r;
+    this->level = level;
 }
 
-void broadcast_server::waterfall_send(std::shared_ptr<conn_data> &d,
-                                      int8_t *buf, int len) {
+void WaterfallClient::send_waterfall(int8_t *buf, size_t frame_num) {
     try {
-        d->waterfall_encoder->send(buf, len, frame_num, d->l << d->level,
-                                   d->r << d->level);
+        int len = r - l;
+        waterfall_encoder->set_data(frame_num, l << level, r << level);
+        waterfall_encoder->send(buf, len);
     } catch (...) {
         // std::cout << "waterfall client disconnect" << std::endl;
     }
-    d->processing = 0;
+    processing = 0;
 }
-void broadcast_server::waterfall_loop(int8_t *fft_power_quantized) {
 
+void WaterfallClient::on_window_message(int new_l, std::optional<double> &m,
+                                        int new_r, std::optional<int> &level) {
+    // Calculate which level should it be at
+    // Each level decreases the amount of points available by 2
+    // Use floating point to prevent integer rounding errors
+    // At most min_waterfall_fft samples shall be sent
+
+    float new_l_f = new_l;
+    float new_r_f = new_r;
+    int downsample_levels = waterfall_slices.size();
+    int new_level = downsample_levels - 1;
     for (int i = 0; i < downsample_levels; i++) {
-
-        // Iterate over each waterfall client and send each slice
-        std::scoped_lock lg(waterfall_slice_mtx[i]);
-        for (auto &[slice, data] : waterfall_slices[i]) {
-            auto &[l_idx, r_idx] = slice;
-            // If the client is slow, avoid unnecessary buffering and
-            // drop the packet
-            if (m_server.get_con_from_hdl(data->hdl)->get_buffered_amount() <=
-                1000000) {
-                if (server_threads == 1) {
-                    waterfall_send(data, &fft_power_quantized[l_idx],
-                                   r_idx - l_idx);
-                } else {
-                    if (!data->processing) {
-                        data->processing = 1;
-                        m_server.get_io_service().post(
-                            m_server.get_con_from_hdl(data->hdl)
-                                ->get_strand()
-                                ->wrap(std::bind(
-                                    &broadcast_server::waterfall_send, this,
-                                    data, &fft_power_quantized[l_idx],
-                                    r_idx - l_idx)));
-                    }
-                }
-            }
+        new_level = i;
+        if (new_r_f - new_l_f <= min_waterfall_fft) {
+            break;
         }
+        new_l_f /= 2;
+        new_r_f /= 2;
+    }
+    new_l = round(new_l_f);
+    new_r = round(new_r_f);
 
-        // Prevent overwrite of previous level's quantized waterfall
-        fft_power_quantized += (fft_result_size >> i);
+    // Since the parameters are modified, output the new parameters
+
+    {
+        std::ostringstream command_log;
+        command_log << sender.ip_from_hdl(hdl);
+        command_log << " [Waterfall User: " << user_id << "]";
+        command_log << " Waterfall Level: " << new_level;
+        command_log << " Waterfall L: " << new_l;
+        command_log << " Waterfall R: " << new_r;
+        sender.log(hdl, command_log.str());
     }
-    waterfall_processing = 0;
+
+    set_waterfall_range(new_level, new_l, new_r);
 }
-void broadcast_server::waterfall_task() {
-    while (running) {
-        std::shared_lock lk(fft_mutex);
-        // Wait for the FFT to be ready
-        fft_processed.wait(lk, [&] { return waterfall_processing; });
-        // waterfall_loop(fft_power, fft_power_quantized_full,
-        // fft_power_scratch);
-        waterfall_processing = 0;
-    }
+
+void WaterfallClient::on_close() {
+    std::scoped_lock lk(waterfall_slice_mtx[level]);
+    waterfall_slices[level].erase(it);
 }

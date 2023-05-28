@@ -29,7 +29,7 @@ void broadcast_server::fft_task() {
     } else {
         fft->plan_c2c(FFT::FORWARD, FFTW_MEASURE | FFTW_DESTROY_INPUT);
     }
-    fft_buffer = (fftwf_complex *)fft->get_output_buffer();
+    fft_buffer = reinterpret_cast<std::complex<float>*>(fft->get_output_buffer());
 
     // Target fps is 10, *2 since 50% overlap
     int skip_num = std::max(1, (int)floor(((float)sps / fft_size) / 10.) * 2);
@@ -69,7 +69,7 @@ void broadcast_server::fft_task() {
         }
 
         input_buffer_idx = (input_buffer_idx + 1) % 3;
-        // If no users, save CPU and skip the FFT
+        // If no users skip the FFT
         /*if (signal_slices.size() + std::accumulate(waterfall_slices.begin(),
                                                    waterfall_slices.end(), 0,
                                                    [](int val, signal_list &l) {

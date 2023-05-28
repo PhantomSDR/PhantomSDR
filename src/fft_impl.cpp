@@ -7,8 +7,6 @@
 #include "fft.h"
 #include "utils.h"
 
-#include <volk/volk.h>
-
 std::mutex fftwf_planner_mutex;
 
 // Compiler autovectorization
@@ -25,11 +23,12 @@ static inline float vec_log2(float val, int power_offset) {
 static inline void power_and_quantize(float *complexbuf, float *powerbuf,
                                       int8_t *quantizedbuf, float normalize,
                                       size_t outbuf_len, int power_offset) {
-    /*complexbuf = (float *)__builtin_assume_aligned(complexbuf, 32);
-    powerbuf = (float *)__builtin_assume_aligned(powerbuf, 32);
-    quantizedbuf = (int8_t *)__builtin_assume_aligned(quantizedbuf, 32);
-    // Get the compiler to auto-vectorize*
-    outbuf_len -= outbuf_len & 15;*/
+/*complexbuf = (float *)__builtin_assume_aligned(complexbuf, 32);
+powerbuf = (float *)__builtin_assume_aligned(powerbuf, 32);
+quantizedbuf = (int8_t *)__builtin_assume_aligned(quantizedbuf, 32);
+// Get the compiler to auto-vectorize*
+outbuf_len -= outbuf_len & 15;*/
+#pragma omp parallel for simd
     for (size_t i = 0; i < outbuf_len; i++) {
         complexbuf[i * 2] /= normalize;
         complexbuf[i * 2 + 1] /= normalize;
@@ -48,8 +47,9 @@ static inline void half_and_quantize(float *powerbuf, float *halfbuf,
     powerbuf = (float *)__builtin_assume_aligned(powerbuf, 32);
     halfbuf = (float *)__builtin_assume_aligned(halfbuf, 32);
     quantizedbuf = (int8_t *)__builtin_assume_aligned(quantizedbuf, 32);
-    // Get the compiler to auto-vectorize
-    outbuf_len -= outbuf_len & 15;
+// Get the compiler to auto-vectorize
+// outbuf_len -= outbuf_len & 15;
+#pragma omp parallel for simd
     for (size_t i = 0; i < outbuf_len; i++) {
         float power = powerbuf[i * 2] + powerbuf[i * 2 + 1];
         halfbuf[i] = power;
@@ -60,7 +60,7 @@ static inline void half_and_quantize(float *powerbuf, float *halfbuf,
 }
 
 FFT::FFT(size_t size, int nthreads, int downsample_levels)
-    : size{size}, size_log2{round(log2(size))}, nthreads{nthreads},
+    : size{size}, size_log2{(int)round(log2(size))}, nthreads{nthreads},
       downsample_levels{downsample_levels}, inbuf{0}, outbuf{0} {
     windowbuf = new (std::align_val_t(32)) float[size];
     build_hann_window(windowbuf, size);
@@ -112,17 +112,32 @@ int FFTW::plan_r2c(int options) {
     p = fftwf_plan_dft_r2c_1d(size, inbuf, (fftwf_complex *)outbuf, options);
     return 0;
 }
+
+void dsp_multiply_float(float *arr1, float *arr2, float *arr3, size_t len) {
+#pragma omp parallel for simd
+    for (size_t i = 0; i < len; i++) {
+        arr1[i] = arr2[i] * arr3[i];
+    }
+}
+void dsp_multiply_complex(std::complex<float> *arr1, std::complex<float> *arr2,
+                          float *arr3, size_t len) {
+#pragma omp parallel for simd
+    for (size_t i = 0; i < len; i++) {
+        arr1[i] = arr2[i] * arr3[i];
+    }
+}
+
 int FFTW::load_real_input(float *a1, float *a2) {
-    volk_32f_x2_multiply_32f(inbuf, a1, windowbuf, size / 2);
-    volk_32f_x2_multiply_32f(&inbuf[size / 2], a2, &windowbuf[size / 2],
-                             size / 2);
+    dsp_multiply_float(inbuf, a1, windowbuf, size / 2);
+    dsp_multiply_float(&inbuf[size / 2], a2, &windowbuf[size / 2], size / 2);
     return 0;
 }
 int FFTW::load_complex_input(float *a1, float *a2) {
-    volk_32fc_32f_multiply_32fc((lv_32fc_t *)inbuf, (lv_32fc_t *)a1, windowbuf,
-                                size / 2);
-    volk_32fc_32f_multiply_32fc((lv_32fc_t *)&inbuf[size], (lv_32fc_t *)a2,
-                                &windowbuf[size / 2], size / 2);
+    dsp_multiply_complex((std::complex<float> *)inbuf,
+                         (std::complex<float> *)a1, windowbuf, size / 2);
+    dsp_multiply_complex((std::complex<float> *)&inbuf[size],
+                         (std::complex<float> *)a2, &windowbuf[size / 2],
+                         size / 2);
     return 0;
 }
 int FFTW::execute() {
@@ -185,7 +200,7 @@ int mklFFT::plan_c2c(direction d, int options) {
     quantizedbuf = new (std::align_val_t(32)) int8_t[size * 2];
 
     DftiCreateDescriptor(&descriptor, DFTI_SINGLE, DFTI_COMPLEX, 1,
-                         size); // Specify size and precision
+                         size);       // Specify size and precision
     DftiSetValue(descriptor, DFTI_PLACEMENT,
                  DFTI_NOT_INPLACE);   // Out of place FFT
     DftiCommitDescriptor(descriptor); // Finalize the descriptor
@@ -201,7 +216,7 @@ int mklFFT::plan_r2c(int options) {
     quantizedbuf = new (std::align_val_t(32)) int8_t[size];
 
     DftiCreateDescriptor(&descriptor, DFTI_SINGLE, DFTI_REAL, 1,
-                         size); // Specify size and precision
+                         size);       // Specify size and precision
     DftiSetValue(descriptor, DFTI_PLACEMENT,
                  DFTI_NOT_INPLACE);   // Out of place FFT
     DftiCommitDescriptor(descriptor); // Finalize the descriptor
@@ -264,21 +279,22 @@ mklFFT::~mklFFT() {
 #ifdef CLFFT
 
 std::string kernel_window_real = R"<rawliteral>(
-    void kernel window_real(global float* inbuf, global const float* windowbuf){ 
+    void kernel window_real(global float* restrict outbuf, int offset, global float* restrict inbuf, global const float* restrict windowbuf){ 
         int i = get_global_id(0);
-        inbuf[i] *= windowbuf[i];
+        outbuf[i + offset] = inbuf[i] * windowbuf[i + offset];
     }
-    void kernel window_complex(global float* inbuf, global const float* windowbuf){ 
+    void kernel window_complex(global float* restrict outbuf, int offset, global float* restrict inbuf, global const float* restrict windowbuf){ 
         int i = get_global_id(0);
-        inbuf[i*2] *= windowbuf[i];
-        inbuf[i*2+1] *= windowbuf[i];
+        int i_offset = i + offset;
+        outbuf[i_offset*2] = inbuf[i*2] * windowbuf[i_offset];
+        outbuf[i_offset*2+1] = inbuf[i*2+1] * windowbuf[i_offset];
     }
-    inline char log_power(float power) {
-        return convert_char_sat_rtz(20 * log10(power) + 127);
+    inline char log_power(float power, int power_offset) {
+        return convert_char_sat_rtz(20 * log10(power) + 127 + power_offset * 6.020599913279624);
     }
     #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
-    void kernel power_and_quantize(global float *complexbuf, global float *powerbuf,
-                                   global char *quantizedbuf, float normalize,
+    void kernel power_and_quantize(global float * restrict complexbuf, global float * restrict powerbuf,
+                                   global char * restrict quantizedbuf, float normalize,
                                    int complexbuf_offset, int outputbuf_offset, int power_offset) {
         int i = get_global_id(0);
         int i_complex = i + complexbuf_offset;
@@ -289,22 +305,29 @@ std::string kernel_window_real = R"<rawliteral>(
         float im = complexbuf[i_complex * 2 + 1];
         float power = re * re + im * im;
         powerbuf[i_output] = power;
-        quantizedbuf[i_output] = log_power(power) + power_offset * 6.020599913279624;
+        quantizedbuf[i_output] = log_power(power, power_offset);
     }
-    void kernel half_and_quantize(global const float *powerbuf, global float *halfbuf,
-                                  global char *quantizedbuf,
+    void kernel half_and_quantize(global const float * restrict powerbuf, global float * restrict halfbuf,
+                                  global char * restrict quantizedbuf,
                                   int powerbuf_offset, int outputbuf_offset, int power_offset) {
         int i = get_global_id(0);
         float power = powerbuf[powerbuf_offset + i * 2] + powerbuf[powerbuf_offset + i * 2 + 1];
         halfbuf[i + outputbuf_offset] = power;
-        quantizedbuf[i + outputbuf_offset] = log_power(power) + power_offset * 6.020599913279624;
+        quantizedbuf[i + outputbuf_offset] = log_power(power, power_offset);
     }
 )<rawliteral>";
 
-clFFT::clFFT(size_t size, int nthreads, int downsample_levels)
-    : FFT(size, nthreads, downsample_levels), dim{CLFFT_1D}, clLengths{size} {
-    int err;
+#define CL_CHECK_ERROR(err)                                                    \
+    if (err != CL_SUCCESS) {                                                   \
+        std::cerr << "OpenCL error: " << err << " at " << __FILE__ << ":"      \
+                  << __LINE__ << "\n";                                         \
+        throw std::runtime_error("OpenCL error");                              \
+    }
 
+clFFT::clFFT(size_t size, int nthreads, int downsample_levels)
+    : FFT(size, nthreads, downsample_levels), window_real{cl::Kernel()},
+      window_complex{cl::Kernel()}, power_and_quantize{cl::Kernel()},
+      half_and_quantize{cl::Kernel()}, dim{CLFFT_1D}, clLengths{size} {
     std::vector<cl::Platform> all_platforms;
     cl::Platform::get(&all_platforms);
     if (all_platforms.size() == 0) {
@@ -328,8 +351,8 @@ clFFT::clFFT(size_t size, int nthreads, int downsample_levels)
     context = cl::Context(device);
     queue = cl::CommandQueue(context, device);
 
-    err = clfftInitSetupData(&fftSetup);
-    err = clfftSetup(&fftSetup);
+    CL_CHECK_ERROR(clfftInitSetupData(&fftSetup));
+    CL_CHECK_ERROR(clfftSetup(&fftSetup));
 
     cl_windowbuf = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(float) * size);
     queue.enqueueWriteBuffer(cl_windowbuf, CL_TRUE, 0, sizeof(float) * size,
@@ -344,94 +367,115 @@ clFFT::clFFT(size_t size, int nthreads, int downsample_levels)
         throw std::runtime_error("Error building OpenCL program");
     }
 
-    window_real = cl::compatibility::make_kernel<cl::Buffer, cl::Buffer>(
-        program, "window_real");
-    window_complex = cl::compatibility::make_kernel<cl::Buffer, cl::Buffer>(
-        program, "window_complex");
+    window_real =
+        cl::KernelFunctor<cl::Buffer &, cl_int, cl::Buffer &, cl::Buffer &>(
+            program, "window_real");
+    window_complex =
+        cl::KernelFunctor<cl::Buffer &, cl_int, cl::Buffer &, cl::Buffer &>(
+            program, "window_complex");
     power_and_quantize =
-        cl::compatibility::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer,
-                                       cl_float, cl_int, cl_int, cl_int>(
-            program, "power_and_quantize");
+        cl::KernelFunctor<cl::Buffer &, cl::Buffer &, cl::Buffer &, cl_float,
+                          cl_int, cl_int, cl_int>(program,
+                                                  "power_and_quantize");
     half_and_quantize =
-        cl::compatibility::make_kernel<cl::Buffer, cl::Buffer, cl::Buffer,
-                                       cl_int, cl_int, cl_int>(
-            program, "half_and_quantize");
+        cl::KernelFunctor<cl::Buffer &, cl::Buffer &, cl::Buffer &, cl_int,
+                          cl_int, cl_int>(program, "half_and_quantize");
 
     operator delete[](windowbuf, std::align_val_t(32));
     windowbuf = NULL;
 }
 
 float *clFFT::malloc(size_t size) {
-    return new (std::align_val_t(4096)) float[size];
+    cl::Buffer cl_buffer =
+        cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
+                   sizeof(float) * size);
+    float *buf = (float *)queue.enqueueMapBuffer(
+        cl_buffer, CL_TRUE, CL_MAP_WRITE, 0, sizeof(float) * size);
+    buffers[buf] = std::move(cl_buffer);
+    return buf;
 }
-void clFFT::free(float *buf) { operator delete[](buf, std::align_val_t(4096)); }
+void clFFT::free(float *buf) {
+    queue.enqueueUnmapMemObject(buffers[buf], buf);
+    buffers.erase(buf);
+}
 int clFFT::plan_c2c(direction d, int options) {
-    int err;
-
     cl_inbuf = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(float) * size * 2);
-    cl_outbuf = cl::Buffer(context, CL_MEM_READ_WRITE,
+    cl_outbuf = cl::Buffer(context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
                            sizeof(float) * (size + additional_size) * 2);
     cl_powerbuf =
         cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(float) * size * 2);
     cl_quantizedbuf =
-        cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(int8_t) * size * 2);
-    outbuf = (float *)this->malloc((size + additional_size) * 2);
-    quantizedbuf = (int8_t *)this->malloc(size * 2);
+        cl::Buffer(context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
+                   sizeof(int8_t) * size * 2);
+    outbuf = (float *)queue.enqueueMapBuffer(cl_outbuf, CL_TRUE, CL_MAP_READ, 0,
+                                             sizeof(float) * size * 2);
+    quantizedbuf = (int8_t *)queue.enqueueMapBuffer(
+        cl_quantizedbuf, CL_TRUE, CL_MAP_READ, 0, sizeof(int8_t) * size * 2);
     outbuf_len = size;
 
     this->d = d == FORWARD ? CLFFT_FORWARD : CLFFT_BACKWARD;
     inlayout = CLFFT_COMPLEX_INTERLEAVED;
     outlayout = CLFFT_COMPLEX_INTERLEAVED;
-    err = clfftCreateDefaultPlan(&planHandle, context(), dim, clLengths);
-    err = clfftSetPlanPrecision(planHandle, CLFFT_SINGLE);
-    err = clfftSetLayout(planHandle, CLFFT_COMPLEX_INTERLEAVED,
-                         CLFFT_COMPLEX_INTERLEAVED);
-    err = clfftSetResultLocation(planHandle, CLFFT_OUTOFPLACE);
-    err = clfftBakePlan(planHandle, 1, &queue(), NULL, NULL);
-    return err;
+    CL_CHECK_ERROR(
+        clfftCreateDefaultPlan(&planHandle, context(), dim, clLengths));
+    CL_CHECK_ERROR(clfftSetPlanPrecision(planHandle, CLFFT_SINGLE));
+    CL_CHECK_ERROR(clfftSetLayout(planHandle, CLFFT_COMPLEX_INTERLEAVED,
+                                  CLFFT_COMPLEX_INTERLEAVED));
+    CL_CHECK_ERROR(clfftSetResultLocation(planHandle, CLFFT_OUTOFPLACE));
+    CL_CHECK_ERROR(clfftBakePlan(planHandle, 1, &queue(), NULL, NULL));
+    return 0;
 }
 int clFFT::plan_r2c(int options) {
-    int err;
     outbuf = this->malloc(size * 2);
 
-    cl_inbuf = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(float) * size);
-    cl_outbuf =
-        cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(float) * (size + 2) * 2);
+    cl_inbuf = cl::Buffer(context, CL_MEM_READ_ONLY, sizeof(float) * size);
+    cl_outbuf = cl::Buffer(context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
+                           sizeof(float) * (size + 2) * 2);
     cl_powerbuf =
         cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(float) * size * 2);
     cl_quantizedbuf =
-        cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(int8_t) * size * 2);
+        cl::Buffer(context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR,
+                   sizeof(int8_t) * size * 2);
     outbuf_len = size / 2;
-    outbuf = (float *)this->malloc(size * 2);
-    quantizedbuf = (int8_t *)this->malloc(size * 2);
+    outbuf = (float *)queue.enqueueMapBuffer(cl_outbuf, CL_TRUE, CL_MAP_READ, 0,
+                                             sizeof(float) * size * 2);
+    quantizedbuf = (int8_t *)queue.enqueueMapBuffer(
+        cl_quantizedbuf, CL_TRUE, CL_MAP_READ, 0, sizeof(int8_t) * size * 2);
 
     inlayout = CLFFT_REAL;
     outlayout = CLFFT_HERMITIAN_INTERLEAVED;
     this->d = CLFFT_FORWARD;
-    err = clfftCreateDefaultPlan(&planHandle, context(), dim, clLengths);
-    err = clfftSetPlanPrecision(planHandle, CLFFT_SINGLE);
-    err = clfftSetLayout(planHandle, CLFFT_REAL, CLFFT_HERMITIAN_INTERLEAVED);
-    err = clfftSetResultLocation(planHandle, CLFFT_OUTOFPLACE);
-    err = clfftBakePlan(planHandle, 1, &queue(), NULL, NULL);
-    return err;
+    CL_CHECK_ERROR(
+        clfftCreateDefaultPlan(&planHandle, context(), dim, clLengths));
+    CL_CHECK_ERROR(clfftSetPlanPrecision(planHandle, CLFFT_SINGLE));
+    CL_CHECK_ERROR(
+        clfftSetLayout(planHandle, CLFFT_REAL, CLFFT_HERMITIAN_INTERLEAVED));
+    CL_CHECK_ERROR(clfftSetResultLocation(planHandle, CLFFT_OUTOFPLACE));
+    CL_CHECK_ERROR(clfftBakePlan(planHandle, 1, &queue(), NULL, NULL));
+    return 0;
 }
 int clFFT::load_real_input(float *a1, float *a2) {
     // Load a1 into first half of cl_inbuf and a2 into second half
-    queue.enqueueWriteBuffer(cl_inbuf, CL_FALSE, 0, sizeof(float) * size / 2,
-                             a1);
-    queue.enqueueWriteBuffer(cl_inbuf, CL_FALSE, sizeof(float) * size / 2,
-                             sizeof(float) * size / 2, a2);
-    window_real(cl::EnqueueArgs(queue, cl::NDRange(size)), cl_inbuf,
-                cl_windowbuf);
+    cl::Buffer &buf_a1 = buffers[a1];
+    cl::Buffer &buf_a2 = buffers[a2];
+    queue.enqueueWriteBuffer(buf_a1, CL_FALSE, 0, sizeof(float) * size / 2, a1);
+    queue.enqueueWriteBuffer(buf_a2, CL_FALSE, 0, sizeof(float) * size / 2, a2);
+    window_real(cl::EnqueueArgs(queue, cl::NDRange(size / 2)), cl_inbuf, 0,
+                buf_a1, cl_windowbuf);
+    window_real(cl::EnqueueArgs(queue, cl::NDRange(size / 2)), cl_inbuf,
+                size / 2, buf_a2, cl_windowbuf);
     return 0;
 }
 int clFFT::load_complex_input(float *a1, float *a2) {
     // Load a1 into first half of cl_inbuf and a2 into second half
-    queue.enqueueWriteBuffer(cl_inbuf, CL_FALSE, 0, sizeof(float) * size, a1);
-    queue.enqueueWriteBuffer(cl_inbuf, CL_FALSE, sizeof(float) * size,
-                             sizeof(float) * size, a2);
-    window_complex(cl::EnqueueArgs(queue, cl::NDRange(size)), cl_inbuf,
-                   cl_windowbuf);
+    cl::Buffer &buf_a1 = buffers[a1];
+    cl::Buffer &buf_a2 = buffers[a2];
+    queue.enqueueWriteBuffer(buf_a1, CL_FALSE, 0, sizeof(float) * size, a1);
+    queue.enqueueWriteBuffer(buf_a2, CL_FALSE, 0, sizeof(float) * size, a2);
+    window_complex(cl::EnqueueArgs(queue, cl::NDRange(size / 2)), cl_inbuf, 0,
+                   buf_a1, cl_windowbuf);
+    window_complex(cl::EnqueueArgs(queue, cl::NDRange(size / 2)), cl_inbuf,
+                   size / 2, buf_a2, cl_windowbuf);
     return 0;
 }
 int clFFT::execute() {
