@@ -5,14 +5,10 @@
 
 WaterfallClient::WaterfallClient(
     connection_hdl hdl, PacketSender &sender,
-    waterfall_compressor waterfall_compression, int min_waterfall_fft,
-    std::vector<
-        std::multimap<std::pair<int, int>, std::shared_ptr<WaterfallClient>>>
-        &waterfall_slices,
-    std::deque<std::mutex> &waterfall_slice_mtx)
+    waterfall_compressor waterfall_compression, int min_waterfall_fft)
     : Client(hdl, sender, WATERFALL), min_waterfall_fft{min_waterfall_fft},
-      level{0}, waterfall_slices{waterfall_slices},
-      waterfall_slice_mtx{waterfall_slice_mtx} {
+      level{0}, waterfall_slices{sender.get_waterfall_slices()},
+      waterfall_slice_mtx{sender.get_waterfall_slice_mtx()} {
 
     if (waterfall_compression == WATERFALL_ZSTD) {
         waterfall_encoder =
@@ -48,16 +44,19 @@ void WaterfallClient::set_waterfall_range(int level, int l, int r) {
 void WaterfallClient::send_waterfall(int8_t *buf, size_t frame_num) {
     try {
         int len = r - l;
-        waterfall_encoder->set_data(frame_num, l << level, r << level);
-        waterfall_encoder->send(buf, len);
+        waterfall_encoder->send(buf, len, frame_num, l << level, r << level);
     } catch (...) {
         // std::cout << "waterfall client disconnect" << std::endl;
     }
     processing = 0;
 }
 
-void WaterfallClient::on_window_message(int new_l, std::optional<double> &m,
-                                        int new_r, std::optional<int> &level) {
+void WaterfallClient::on_window_message(int new_l, std::optional<double> &,
+                                        int new_r, std::optional<int> &) {
+    // Sanitize the inputs
+    if (new_l < 0 || new_r < 0 || new_l >= new_r) {
+        return;
+    }
     // Calculate which level should it be at
     // Each level decreases the amount of points available by 2
     // Use floating point to prevent integer rounding errors

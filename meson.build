@@ -2,14 +2,15 @@ project(
     'spectrumdistributor',
     'cpp',
     default_options : [
-        'cpp_std=c++17',
         'optimization=3',
+        #'b_lto=true',
+        #'b_sanitize=address'
     ]
 )
 
 add_project_arguments('-march=native', language: 'cpp')
 add_project_arguments('-ggdb3', language: 'cpp')
-add_project_arguments(['-Wall','-Wpedantic'], language: 'cpp')
+add_project_arguments(['-std=c++23','-Wall','-Wextra','-Wpedantic'], language: 'cpp')
 #add_project_link_arguments(['-rdynamic', '-no-pie'], language: 'cpp')
 
 cpp = meson.get_compiler('cpp')
@@ -18,12 +19,32 @@ cmake = import('cmake')
 
 thread_dep = dependency('threads')
 
-fftw3f_deps = [dependency('fftw3f')]
-fftw3f_deps += cpp.find_library('fftw3f_threads')
+fft_deps = []
+fftw3f_dep = dependency('fftw3f')
+fftw3f_deps = [
+    fftw3f_dep,
+    cpp.find_library('fftw3f_omp'),
+]
+fft_deps += fftw3f_deps
+fft_deps += dependency('openmp')
 
+#message('CMake targets:\n - ' + '\n - '.join(cmake.target_list()))
 
 boost_dep = dependency('boost', modules : ['system', 'program_options', 'iostreams'])
-rapidjson_dep = dependency('RapidJSON')
+glaze_dep = dependency('glaze', required : false)
+if (not glaze_dep.found()
+    or get_option('wrap_mode') == 'forcefallback'
+    or 'glaze' in get_option('force_fallback_for'))
+
+    glaze = cmake.subproject('glaze')
+    glaze_dep = glaze.dependency('glaze_glaze')
+endif
+
+
+liquid_dep = cpp.find_library('liquid', required : false)
+if liquid_dep.found()
+    add_project_arguments('-DHAS_LIQUID', language : 'cpp')
+endif
 
 codec_deps = []
 zstd_dep = dependency('libzstd')
@@ -43,16 +64,14 @@ if opus_dep.found()
     add_project_arguments('-DHAS_LIBOPUS', language : 'cpp')
 endif
 
-volk_dep = dependency('volk')
 #if not volk_dep.found() or get_option('wrap_mode') == 'forcefallback'
-    #libvolk = cmake.subproject('libvolk')
-    #volk_dep = libvolk.dependency('volk')
+#    libvolk = cmake.subproject('libvolk')
+#    volk_dep = libvolk.dependency('volk')
 #endif
 
 zlib_dep = dependency('zlib')
-websocketpp_dep = dependency('websocketpp')
+websocketpp_dep = subproject('websocketpp').get_variable('websocketpp_dep')
 tomlplusplus_dep = dependency('tomlplusplus')
-
 
 cuda_dep = dependency('cuda', required : false)
 cufft_dep = dependency('cufft', required : false)
@@ -65,8 +84,8 @@ cuda_srcs = []
 
 if add_languages('cuda', required : false) and cuda_dep.found() and cufft_dep.found()
     cuda = import('unstable-cuda')
-    fftw3f_deps += cuda_dep
-    fftw3f_deps += cufft_dep
+    fft_deps += cuda_dep
+    fft_deps += cufft_dep
     add_project_arguments('-DCUFFT', language : ['cpp', 'cuda'] )
     add_project_arguments(cuda.nvcc_arch_flags(meson.get_compiler('cuda'), 'All'), language: 'cuda')
     add_project_arguments('-O3', language: 'cuda')
@@ -75,13 +94,13 @@ if add_languages('cuda', required : false) and cuda_dep.found() and cufft_dep.fo
 endif
 
 if opencl_dep.found() and clfft_dep.found()
-    fftw3f_deps += opencl_dep
-    fftw3f_deps += clfft_dep
+    fft_deps += opencl_dep
+    fft_deps += clfft_dep
     add_project_arguments('-DCLFFT', language : 'cpp')
 endif
 
 #if mkl_dep.found()
-#    fftw3f_deps += mkl_dep
+#    fft_deps += mkl_dep
 #    add_project_arguments('-DMKL', language : 'cpp')
 #endif
 
@@ -93,11 +112,15 @@ srcs = [
     'src/http.cpp',
 
     'src/fft.cpp',
+    'src/client.cpp',
     'src/signal.cpp',
     'src/waterfall.cpp',
     'src/events.cpp',
     'src/audio.cpp',
     'src/waterfallcompression.cpp',
+
+    'src/utils/dsp.cpp',
+    'src/utils/audioprocessing.cpp',
 
     'src/fft_impl.cpp',
     'src/utils.cpp',
@@ -112,13 +135,14 @@ executable(
     dependencies : [
         stdcppfs_dep,
         thread_dep,
-        fftw3f_deps,
+        fft_deps,
         websocketpp_dep,
         boost_dep,
         tomlplusplus_dep,
-        rapidjson_dep,
+        glaze_dep,
         codec_deps,
-        volk_dep,
         zlib_dep,
-    ]
+        liquid_dep,
+    ],
+    link_language : 'cpp',
 )

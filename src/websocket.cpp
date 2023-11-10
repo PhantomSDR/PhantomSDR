@@ -12,7 +12,7 @@ void broadcast_server::on_open(connection_hdl hdl) {
     if (path == "/audio") {
         on_open_signal(hdl, AUDIO);
     } else if (path == "/signal") {
-        on_open_signal(hdl, SIGNAL);
+        // on_open_signal(hdl, SIGNAL);
     } else if (path == "/waterfall") {
         on_open_waterfall(hdl);
     } else if (path == "/waterfall_raw") {
@@ -59,6 +59,7 @@ void broadcast_server::send_basic_info(connection_hdl hdl) {
     m_server.send(hdl, glz::write_json(json), websocketpp::frame::opcode::text);
 }
 
+// PacketSender---------------------------------------------------------------
 void broadcast_server::send_binary_packet(
     connection_hdl hdl,
     const std::initializer_list<std::pair<const void *, size_t>> &bufs) {
@@ -94,14 +95,24 @@ void broadcast_server::send_text_packet(connection_hdl hdl,
                                         const std::string &str) {
     m_server.send(hdl, str, websocketpp::frame::opcode::text);
 }
-void broadcast_server::log(connection_hdl hdl, const std::string &str) {
+void broadcast_server::log(connection_hdl, const std::string &str) {
     m_server.get_alog().write(websocketpp::log::alevel::app, str);
 }
 std::string broadcast_server::ip_from_hdl(connection_hdl hdl) {
     return m_server.get_con_from_hdl(hdl)->get_remote_endpoint();
 }
+waterfall_slices_t &broadcast_server::get_waterfall_slices() {
+    return waterfall_slices;
+}
+waterfall_mutexes_t &broadcast_server::get_waterfall_slice_mtx() {
+    return waterfall_slice_mtx;
+}
+signal_slices_t &broadcast_server::get_signal_slices() { return signal_slices; }
+std::mutex &broadcast_server::get_signal_slice_mtx() {
+    return signal_slice_mtx;
+}
 
-void broadcast_server::on_message(connection_hdl hdl, server::message_ptr msg,
+void broadcast_server::on_message(connection_hdl, server::message_ptr msg,
                                   std::shared_ptr<Client> &client) {
 
     // Limit the amount of data received
@@ -116,7 +127,7 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
     int audio_fft_size = ceil((double)audio_max_sps * fft_size / sps / 4.) * 4;
     std::shared_ptr<AudioClient> client = std::make_shared<AudioClient>(
         hdl, *this, audio_compression, is_real, audio_fft_size, audio_max_sps,
-        fft_result_size, signal_slices, signal_slice_mtx);
+        fft_result_size);
 
     client->set_audio_demodulation(default_mode);
     {
@@ -158,20 +169,20 @@ void broadcast_server::signal_loop() {
         auto &[l_idx, r_idx] = slice;
         // If the client is slow, avoid unnecessary buffering and drop the
         // audio
-        if (m_server.get_con_from_hdl(data->hdl)->get_buffered_amount() <=
-            1000000) {
+        auto con = m_server.get_con_from_hdl(data->hdl);
+        if (con->get_buffered_amount() <= 1000000) {
             if (server_threads == 1) {
                 data->send_audio(
-                    &fft_buffer[(l_idx + base_idx) % fft_result_size], frame_num);
+                    &fft_buffer[(l_idx + base_idx) % fft_result_size],
+                    frame_num);
             } else {
                 if (!data->processing) {
                     data->processing = 1;
                     m_server.get_io_service().post(
-                        m_server.get_con_from_hdl(data->hdl)
-                            ->get_strand()
-                            ->wrap(std::bind(&AudioClient::send_audio, data,
-                                             &fft_buffer[(l_idx + base_idx) %
-                                                         fft_result_size], frame_num)));
+                        con->get_strand()->wrap(std::bind(
+                            &AudioClient::send_audio, data,
+                            &fft_buffer[(l_idx + base_idx) % fft_result_size],
+                            frame_num)));
                 }
             }
         }
@@ -184,8 +195,7 @@ void broadcast_server::on_open_waterfall(connection_hdl hdl) {
 
     // Set default to the entire spectrum
     std::shared_ptr<WaterfallClient> client = std::make_shared<WaterfallClient>(
-        hdl, *this, waterfall_compression, min_waterfall_fft, waterfall_slices,
-        waterfall_slice_mtx);
+        hdl, *this, waterfall_compression, min_waterfall_fft);
     {
         std::scoped_lock lk(waterfall_slice_mtx[0]);
         auto it = waterfall_slices[0].insert({{0, min_waterfall_fft}, client});
@@ -210,19 +220,17 @@ void broadcast_server::waterfall_loop(int8_t *fft_power_quantized) {
             auto &[l_idx, r_idx] = slice;
             // If the client is slow, avoid unnecessary buffering and
             // drop the packet
-            if (m_server.get_con_from_hdl(data->hdl)->get_buffered_amount() <=
-                1000000) {
+            auto con = m_server.get_con_from_hdl(data->hdl);
+            if (con->get_buffered_amount() <= 1000000) {
                 if (server_threads == 1) {
-                    data->send_waterfall(&fft_power_quantized[l_idx], frame_num);
+                    data->send_waterfall(&fft_power_quantized[l_idx],
+                                         frame_num);
                 } else {
                     if (!data->processing) {
                         data->processing = 1;
-                        m_server.get_io_service().post(
-                            m_server.get_con_from_hdl(data->hdl)
-                                ->get_strand()
-                                ->wrap(std::bind(
-                                    &WaterfallClient::send_waterfall, data,
-                                    &fft_power_quantized[l_idx], frame_num)));
+                        m_server.get_io_service().post(con->get_strand()->wrap(
+                            std::bind(&WaterfallClient::send_waterfall, data,
+                                      &fft_power_quantized[l_idx], frame_num)));
                     }
                 }
             }

@@ -70,14 +70,14 @@ void broadcast_server::fft_task() {
 
         input_buffer_idx = (input_buffer_idx + 1) % 3;
         // If no users skip the FFT
-        /*if (signal_slices.size() + std::accumulate(waterfall_slices.begin(),
+        if (signal_slices.size() + std::accumulate(waterfall_slices.begin(),
                                                    waterfall_slices.end(), 0,
-                                                   [](int val, signal_list &l) {
+                                                   [](int val, auto &l) {
                                                        return val + l.size();
                                                    }) ==
             0) {
             continue;
-        }*/
+        }
 
         fft->execute();
         if (!is_real) {

@@ -3,17 +3,16 @@
 
 #include "fft.h"
 #include "signal.h"
+#include "utils/dsp.h"
 
-AudioClient::AudioClient(
-    connection_hdl hdl, PacketSender &sender,
-    audio_compressor audio_compression, bool is_real, int audio_fft_size,
-    int audio_max_sps, int fft_result_size,
-    std::multimap<std::pair<int, int>, std::shared_ptr<AudioClient>>
-        &signal_slices,
-    std::mutex &signal_slice_mtx)
+AudioClient::AudioClient(connection_hdl hdl, PacketSender &sender,
+                         audio_compressor audio_compression, bool is_real,
+                         int audio_fft_size, int audio_max_sps,
+                         int fft_result_size)
     : Client(hdl, sender, AUDIO), is_real{is_real},
       audio_fft_size{audio_fft_size}, fft_result_size{fft_result_size},
-      signal_slices{signal_slices}, signal_slice_mtx{signal_slice_mtx} {
+      audio_rate{audio_max_sps}, signal_slices{sender.get_signal_slices()},
+      signal_slice_mtx{sender.get_signal_slice_mtx()} {
 
     if (audio_compression == AUDIO_FLAC) {
         std::unique_ptr<FlacEncoder> encoder =
@@ -21,7 +20,7 @@ AudioClient::AudioClient(
         encoder->set_channels(1);
         encoder->set_verify(false);
         encoder->set_compression_level(5);
-        encoder->set_sample_rate(audio_max_sps);
+        encoder->set_sample_rate(audio_rate);
         encoder->set_bits_per_sample(16);
         encoder->set_streamable_subset(true);
         encoder->init();
@@ -29,8 +28,7 @@ AudioClient::AudioClient(
     }
 #ifdef HAS_LIBOPUS
     else if (audio_compression == AUDIO_OPUS) {
-        encoder =
-            std::make_unique<OpusEncoder>(hdl, sender, audio_max_sps);
+        encoder = std::make_unique<OpusEncoder>(hdl, sender, audio_max_sps);
     }
 #endif
 
@@ -45,15 +43,24 @@ AudioClient::AudioClient(
         fftwf_malloc_unique_ptr<std::complex<float>>(audio_fft_size);
     audio_complex_baseband_prev =
         fftwf_malloc_unique_ptr<std::complex<float>>(audio_fft_size);
+    audio_complex_baseband_carrier =
+        fftwf_malloc_unique_ptr<std::complex<float>>(audio_fft_size);
+    audio_complex_baseband_carrier_prev =
+        fftwf_malloc_unique_ptr<std::complex<float>>(audio_fft_size);
 
     audio_real.resize(audio_fft_size);
     audio_real_prev.resize(audio_fft_size);
     audio_real_int16.resize(audio_fft_size);
 
-    dc = DCBlocker<float>(audio_max_sps / 750);
-    agc = AGC<float>(0.05, 44100. / (double)audio_max_sps / 10000.);
+    dc = DCBlocker<float>(audio_max_sps / 750 * 2);
+    agc = AGC(0.2f, 50.0f, 300.0f, 200.0f, audio_max_sps);
     ma = MovingAverage<float>(10);
     mm = MovingMode<int>(10);
+
+#ifdef HAS_LIQUID
+    mixer = nco_crcf_create(LIQUID_NCO);
+    nco_crcf_pll_set_bandwidth(mixer, 0.001f);
+#endif
 
     {
         std::scoped_lock lg(fftwf_planner_mutex);
@@ -62,6 +69,10 @@ AudioClient::AudioClient(
             audio_fft_size, (fftwf_complex *)audio_fft_input.get(),
             (fftwf_complex *)audio_complex_baseband.get(), FFTW_BACKWARD,
             FFTW_ESTIMATE);
+        p_complex_carrier = fftwf_plan_dft_1d(
+            audio_fft_size, (fftwf_complex *)audio_fft_input.get(),
+            (fftwf_complex *)audio_complex_baseband_carrier.get(),
+            FFTW_BACKWARD, FFTW_ESTIMATE);
         p_real = fftwf_plan_dft_c2r_1d(audio_fft_size,
                                        (fftwf_complex *)audio_fft_input.get(),
                                        audio_real.data(), FFTW_ESTIMATE);
@@ -74,10 +85,13 @@ void AudioClient::set_audio_range(int l, double m, int r) {
     this->r = r;
 
     // Change the data structures to reflect the changes
-    std::scoped_lock lk(signal_slice_mtx);
-    auto node = signal_slices.extract(it);
-    node.key() = {l, r};
-    it = signal_slices.insert(std::move(node));
+    {
+        std::scoped_lock lk(signal_slice_mtx);
+        auto node = signal_slices.extract(it);
+        node.key() = {l, r};
+        it = signal_slices.insert(std::move(node));
+    }
+    sender.broadcast_signal_changes(unique_id, l, m, r);
 }
 void AudioClient::set_audio_demodulation(demodulation_mode demodulation) {
     this->demodulation = demodulation;
@@ -88,10 +102,10 @@ const std::string &AudioClient::get_unique_id() { return unique_id; }
 // buf is given offseted by l
 void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
     try {
-        int audio_l = l - l;
-        int audio_r = r - l;
-        int audio_m = floor(audio_mid) - l;
-        int audio_m_idx = floor(audio_mid);
+        const int audio_l = l - l;
+        const int audio_r = r - l;
+        const int audio_m = floor(audio_mid) - l;
+        const int audio_m_idx = floor(audio_mid);
 
         int len = audio_r - audio_l;
         // If the user request for the raw IQ signal, do not demodulate
@@ -103,7 +117,7 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
 
         float average_power = std::accumulate(
             buf, buf + len, 0.0f,
-            [](float a, std::complex<float>& b) { return a + std::norm(b); });
+            [](float a, std::complex<float> &b) { return a + std::norm(b); });
 
         // average_power /= len;
 
@@ -156,57 +170,52 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
             // For AM, copy the bins to the complex baseband frequencies
             std::fill(audio_fft_input.get(),
                       audio_fft_input.get() + audio_fft_size, 0.0f);
+
             // Bins are [audio_l, audio_r)
             // Positive IFFT bins are [audio_m, audio_m + audio_fft_size / 2)
             // Negative IFFT bins are [audio_m - audio_fft_size / 2 + 1,
             // audio_m) intersect and copy
             int pos_copy_l = std::max(audio_l, audio_m);
             int pos_copy_r = std::min(audio_r, audio_m + audio_fft_size / 2);
-            std::copy(buf + pos_copy_l - audio_l, buf + pos_copy_r - audio_l,
-                      audio_fft_input.get() + pos_copy_l - audio_m);
+            if (pos_copy_r >= pos_copy_l) {
+                std::copy(buf + pos_copy_l - audio_l,
+                          buf + pos_copy_r - audio_l,
+                          audio_fft_input.get() + pos_copy_l - audio_m);
+            }
             int neg_copy_l =
                 std::max(audio_l, audio_m - audio_fft_size / 2 + 1);
             int neg_copy_r = std::min(audio_r, audio_m);
             // last element should be at audio_fft_size - 1
-            std::copy(buf + neg_copy_l - audio_l, buf + neg_copy_r - audio_l,
-                      audio_fft_input.get() + audio_fft_size -
-                          (audio_m - neg_copy_l));
-
-            /*int strongest_bin = std::max_element(audio_fft_input,
-            audio_fft_input + audio_fft_size,
-                                                 [](const fftwf_complex &a,
-            const fftwf_complex &b) { return a[0] * a[0] + a[1] * a[1] < b[0] *
-            b[0] + b[1] * b[1];
-                                                 }) -
-                                audio_fft_input;
-            int strongest_bin_mode = d->mm.insert(strongest_bin);
-            float mag = std::sqrt(audio_fft_input[strongest_bin][0] *
-            audio_fft_input[strongest_bin][0] +
-                             audio_fft_input[strongest_bin][1] *
-            audio_fft_input[strongest_bin][1]); float strongest_bin_ma =
-            d->ma.insert(mag); float strongest_bin_mode_mag =
-            std::sqrt(audio_fft_input[strongest_bin_mode][0] *
-            audio_fft_input[strongest_bin_mode][0] +
-                                                audio_fft_input[strongest_bin_mode][1]
-            * audio_fft_input[strongest_bin_mode][1]); if (strongest_bin_ma >
-            strongest_bin_mode_mag) { audio_fft_input[strongest_bin_mode][0] *=
-            strongest_bin_ma / strongest_bin_mode_mag;
-                audio_fft_input[strongest_bin_mode][1] *= strongest_bin_ma /
-            strongest_bin_mode_mag; std::cout<<"carrier strength
-            adjust"<<std::endl;
+            if (neg_copy_r >= neg_copy_l) {
+                std::copy(buf + neg_copy_l - audio_l,
+                          buf + neg_copy_r - audio_l,
+                          audio_fft_input.get() + audio_fft_size -
+                              (audio_m - neg_copy_l));
             }
-            std::cout<<"strongest_bin: "<<strongest_bin<<" strongest_bin_mode:
-            "<<strongest_bin_mode<<" mag: "<<mag<<" strongest_bin_ma:
-            "<<strongest_bin_ma<<" strongest_bin_mode_mag:
-            "<<strongest_bin_mode_mag<<std::endl;*/
 
             auto prev = audio_complex_baseband[audio_fft_size / 2 - 1];
             std::copy(audio_complex_baseband.get() + audio_fft_size / 2,
                       audio_complex_baseband.get() + audio_fft_size,
                       audio_complex_baseband_prev.get());
+
+            if (demodulation == AM) {
+                // Carrier
+                std::copy(audio_complex_baseband_carrier.get() +
+                              audio_fft_size / 2,
+                          audio_complex_baseband_carrier.get() + audio_fft_size,
+                          audio_complex_baseband_carrier_prev.get());
+            }
             // Copy the bins to the complex baseband frequencies
             // Remove DC
             fftwf_execute(p_complex);
+            if (demodulation == AM) {
+                // Keep only the low frequencies < 500Hz
+                int cutoff = 500 * audio_fft_size / audio_rate;
+                std::fill(audio_fft_input.get() + cutoff,
+                          audio_fft_input.get() + audio_fft_size - cutoff,
+                          0.0f);
+                fftwf_execute(p_complex_carrier);
+            }
             if (frame_num % 2 == 1 && ((audio_m_idx % 2 == 0 && !is_real) ||
                                        (audio_m_idx % 2 == 1 && is_real))) {
                 // If the center frequency is even and the frame number is odd,
@@ -214,14 +223,34 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
                 // even, then the signal is inverted
                 dsp_negate_complex(audio_complex_baseband.get(),
                                    audio_fft_size);
+                if (demodulation == AM) {
+                    dsp_negate_complex(audio_complex_baseband_carrier.get(),
+                                       audio_fft_size);
+                }
             }
             dsp_add_complex(audio_complex_baseband.get(),
                             audio_complex_baseband_prev.get(),
                             audio_fft_size / 2);
             if (demodulation == AM) {
+                dsp_add_complex(audio_complex_baseband_carrier.get(),
+                                audio_complex_baseband_carrier_prev.get(),
+                                audio_fft_size / 2);
+#ifdef HAS_LIQUID
+                for (int i = 0; i < audio_fft_size / 2; i++) {
+                    std::complex<float> v0, v1;
+                    nco_crcf_mix_down(mixer, audio_complex_baseband_carrier[i],
+                                      &v0);
+                    nco_crcf_mix_down(mixer, audio_complex_baseband[i], &v1);
+                    float phase_error = std::arg(v0);
+                    nco_crcf_pll_step(mixer, phase_error);
+                    nco_crcf_step(mixer);
+                    audio_real[i] = v1.real();
+                }
+#else
                 // Envelope detection for AM
                 dsp_am_demod(audio_complex_baseband.get(), audio_real.data(),
                              audio_fft_size / 2);
+#endif
             }
             if (demodulation == FM) {
                 // Polar discriminator for FM
@@ -229,7 +258,7 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
                                        audio_real.data(), audio_fft_size / 2);
             }
         }
-        
+
         // Check if any audio_real is nan
         for (int i = 0; i < audio_fft_size / 2; i++) {
             if (std::isnan(audio_real[i])) {
@@ -241,7 +270,7 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
         dc.removeDC(audio_real.data(), audio_fft_size / 2);
 
         // AGC
-        agc.applyAGC(audio_real.data(), audio_fft_size / 2);
+        agc.process(audio_real.data(), audio_fft_size / 2);
         // Quantize into 16 bit audio to save bandwidth
         dsp_float_to_int16(audio_real.data(), audio_real_int16.data(),
                            65536 / 4, audio_fft_size / 2);
@@ -251,7 +280,8 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
                   audio_real_prev.begin());
 
         // Set audio details
-        encoder->set_data(frame_num, audio_l, audio_mid, audio_r, average_power);
+        encoder->set_data(frame_num, audio_l, audio_mid, audio_r,
+                          average_power);
 
         // Encode audio and send it off
         encoder->process(audio_real_int16.data(), audio_fft_size / 2);
@@ -265,11 +295,11 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
 }
 
 void AudioClient::on_window_message(int new_l, std::optional<double> &m,
-                                    int new_r, std::optional<int> &level) {
+                                    int new_r, std::optional<int> &) {
     if (!m.has_value()) {
         return;
     }
-    if (new_l < 0 || new_r > fft_result_size) {
+    if (new_l < 0 || new_r > fft_result_size || new_l > new_r) {
         return;
     }
     if (new_r - new_l > audio_fft_size) {
@@ -293,14 +323,17 @@ void AudioClient::on_demodulation_message(std::string &demodulation) {
 }
 
 void AudioClient::on_close() {
-    std::scoped_lock lk(signal_slice_mtx);
-    signal_slices.erase(it);
-    /*if (show_other_users) {
-        std::scoped_lock lk(signal_changes_mtx);
-        signal_changes[d->unique_id] = {-1, -1, -1};
-    }*/
+    {
+        std::scoped_lock lk(signal_slice_mtx);
+        signal_slices.erase(it);
+    }
+    sender.broadcast_signal_changes(unique_id, -1, -1, -1);
 }
 AudioClient::~AudioClient() {
     fftwf_destroy_plan(p_real);
+    fftwf_destroy_plan(p_complex_carrier);
     fftwf_destroy_plan(p_complex);
+#ifdef HAS_LIQUID
+    nco_crcf_destroy(mixer);
+#endif
 }

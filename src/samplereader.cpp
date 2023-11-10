@@ -8,7 +8,7 @@
 
 FileSampleReader::FileSampleReader(FILE *f) : f{f} {}
 int FileSampleReader::read(void *arr, int num) {
-    return fread(arr, sizeof(uint8_t), num, f);
+    return fread_unlocked(arr, sizeof(uint8_t), num, f);
 }
 
 SampleConverterBase::SampleConverterBase(std::unique_ptr<SampleReader> reader)
@@ -25,8 +25,8 @@ template <typename T> struct type_ {
 template <typename T> void convert(float *arr, T *scratch, float scale, size_t num) {
     arr = std::assume_aligned<64>(arr);
     scratch = std::assume_aligned<64>(scratch);
-    [[assume(num % (64 / sizeof(T)) == 0)]];
-    [[assume(num > 0)]]
+    //[[assume(num % (64 / sizeof(T)) == 0)]];
+    [[assume(num > 0)]];
     for (size_t i = 0; i < num; i++) {
         if constexpr (std::is_unsigned<T>::value) {
             scratch[i] = scratch[i] ^ ((T)1 << (sizeof(T) * 8 - 1));

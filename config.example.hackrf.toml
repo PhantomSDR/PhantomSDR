@@ -8,7 +8,7 @@ sps=20000000 # Input Sample Rate
 fft_size=1048576 # FFT bins
 frequency=98000000 # Baseband frequency
 signal="iq" # real or iq
-accelerator="cuda" # Accelerator: none, cuda, opencl
+accelerator="none" # Accelerator: none, cuda, opencl
 audio_sps=192000 # Audio Sample Rate
 
 [input.driver]

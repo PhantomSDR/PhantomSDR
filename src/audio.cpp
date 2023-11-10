@@ -15,7 +15,7 @@ void AudioEncoder::set_data(uint64_t frame_num, int l, double m, int r, double p
 }
 
 int AudioEncoder::send(const void *buffer, size_t bytes,
-                       unsigned current_frame) {
+                       unsigned) {
     try {
         sender.send_binary_packet(hdl,
                                   {{&header, sizeof(header)}, {buffer, bytes}});
@@ -27,7 +27,7 @@ int AudioEncoder::send(const void *buffer, size_t bytes,
 
 FLAC__StreamEncoderWriteStatus
 FlacEncoder::write_callback(const FLAC__byte buffer[], size_t bytes,
-                            unsigned samples, unsigned current_frame) {
+                            unsigned, unsigned current_frame) {
     return send(buffer, bytes, current_frame)
                ? FLAC__STREAM_ENCODER_WRITE_STATUS_FATAL_ERROR
                : FLAC__STREAM_ENCODER_WRITE_STATUS_OK;

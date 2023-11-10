@@ -46,6 +46,15 @@ enum waterfall_compressor { WATERFALL_ZSTD, WATERFALL_AV1 };
 
 enum audio_compressor { AUDIO_FLAC, AUDIO_OPUS };
 
+class WaterfallClient;
+class AudioClient;
+typedef std::vector<
+    std::multimap<std::pair<int, int>, std::shared_ptr<WaterfallClient>>>
+    waterfall_slices_t;
+typedef std::deque<std::mutex> waterfall_mutexes_t;
+typedef std::multimap<std::pair<int, int>, std::shared_ptr<AudioClient>>
+    signal_slices_t;
+
 class PacketSender {
   public:
     PacketSender() {}
@@ -54,11 +63,21 @@ class PacketSender {
         const std::initializer_list<std::pair<const void *, size_t>> &bufs) = 0;
     virtual void send_binary_packet(connection_hdl hdl, const void *data,
                                     size_t size);
-    virtual void send_text_packet(connection_hdl hdl,
-                                  const std::initializer_list<std::string> &data) = 0;
+    virtual void
+    send_text_packet(connection_hdl hdl,
+                     const std::initializer_list<std::string> &data) = 0;
     virtual void send_text_packet(connection_hdl hdl, const std::string &data);
     virtual std::string ip_from_hdl(connection_hdl hdl) = 0;
     virtual void log(connection_hdl hdl, const std::string &msg) = 0;
+
+    virtual waterfall_slices_t &get_waterfall_slices() = 0;
+    virtual waterfall_mutexes_t &get_waterfall_slice_mtx() = 0;
+    virtual signal_slices_t &get_signal_slices() = 0;
+    virtual std::mutex &get_signal_slice_mtx() = 0;
+
+    virtual void broadcast_signal_changes(const std::string &unique_id, int l,
+                                          double m, int r) = 0;
+
     virtual ~PacketSender() {}
 };
 

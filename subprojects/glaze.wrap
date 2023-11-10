@@ -1,0 +1,7 @@
+[wrap-git]
+url = https://github.com/stephenberry/glaze.git
+revision = head
+depth = 1
+
+[provide]
+glaze = glaze_dep

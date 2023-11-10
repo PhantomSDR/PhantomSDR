@@ -16,11 +16,11 @@ class WaterfallEncoder {
   public:
     WaterfallEncoder(connection_hdl hdl, PacketSender &sender)
         : hdl{hdl}, sender{sender} {}
-    virtual int send(const void *buffer, size_t bytes) = 0;
-    void set_data(uint64_t frame_num, int l, int r);
+    virtual int send(const void *buffer, size_t bytes, uint64_t frame_num, int l, int r) = 0;
     virtual ~WaterfallEncoder(){};
 
   protected:
+    void set_data(uint64_t frame_num, int l, int r);
     void send_packet(void *packet, size_t bytes);
     websocketpp::connection_hdl hdl;
     PacketSender &sender;
@@ -34,7 +34,7 @@ class WaterfallEncoder {
 class ZstdEncoder : public WaterfallEncoder {
   public:
     ZstdEncoder(connection_hdl hdl, PacketSender &sender, int waterfall_size);
-    int send(const void *buffer, size_t bytes);
+    int send(const void *buffer, size_t bytes, uint64_t frame_num, int l, int r);
     virtual ~ZstdEncoder();
 
   protected:
@@ -45,8 +45,7 @@ class ZstdEncoder : public WaterfallEncoder {
 class AV1Encoder : public WaterfallEncoder {
   public:
     AV1Encoder(connection_hdl hdl, PacketSender &sender, int waterfall_size);
-    int send(const void *buffer, size_t bytes, unsigned current_frame, int l,
-             int r);
+    int send(const void *buffer, size_t bytes, uint64_t frame_num, int l, int r);
     virtual ~AV1Encoder();
 
   protected:
@@ -56,8 +55,12 @@ class AV1Encoder : public WaterfallEncoder {
     aom_codec_ctx_t codec;
     int frames;
     int line;
-    uint32_t header_multi_u32[4 * WATERFALL_COALESCE];
-    uint8_t header_compressed_u8[4 * WATERFALL_COALESCE * 4 * 2];
+    struct {
+        uint64_t frame_num;
+        uint32_t bytes;
+        uint32_t l, r;
+    } header_multi[WATERFALL_COALESCE];
+    uint8_t header_multi_compressed[4 * WATERFALL_COALESCE * 4 * 2];
 };
 #endif
 #endif

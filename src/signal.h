@@ -4,10 +4,15 @@
 #include "audio.h"
 #include "client.h"
 #include "utils.h"
+#include "utils/audioprocessing.h"
 
 #include <complex>
 
 #include <boost/align/aligned_allocator.hpp>
+
+#ifdef HAS_LIQUID
+#include <liquid/liquid.h>
+#endif
 
 template <typename T>
 using AlignedAllocator = boost::alignment::aligned_allocator<T, 64>;
@@ -49,10 +54,7 @@ class AudioClient : public Client {
   public:
     AudioClient(connection_hdl hdl, PacketSender &sender,
                 audio_compressor audio_compression, bool is_real,
-                int audio_fft_size, int audio_max_sps, int fft_result_size,
-                std::multimap<std::pair<int, int>, std::shared_ptr<AudioClient>>
-                    &signal_slices,
-                std::mutex &signal_slice_mtx);
+                int audio_fft_size, int audio_max_sps, int fft_result_size);
     void set_audio_range(int l, double audio_mid, int r);
     void set_audio_demodulation(demodulation_mode demodulation);
     const std::string &get_unique_id();
@@ -80,29 +82,43 @@ class AudioClient : public Client {
     bool is_real;
     int audio_fft_size;
     int fft_result_size;
+    int audio_rate;
     std::unique_ptr<std::complex<float>[], ComplexDeleter> audio_fft_input;
+
+    // IQ data for demodulation
     std::unique_ptr<std::complex<float>[], ComplexDeleter>
         audio_complex_baseband;
     std::unique_ptr<std::complex<float>[], ComplexDeleter>
         audio_complex_baseband_prev;
+
+    std::unique_ptr<std::complex<float>[], ComplexDeleter>
+        audio_complex_baseband_carrier;
+    std::unique_ptr<std::complex<float>[], ComplexDeleter>
+        audio_complex_baseband_carrier_prev;
+    
     std::vector<float, AlignedAllocator<float>> audio_real;
     std::vector<float, AlignedAllocator<float>> audio_real_prev;
     std::vector<int32_t, AlignedAllocator<int32_t>> audio_real_int16;
 
     // IFFT plans for demodulation
     fftwf_plan p_complex;
+    fftwf_plan p_complex_carrier;
     fftwf_plan p_real;
 
     // For DC offset removal and AGC implementatino
     DCBlocker<float> dc;
-    AGC<float> agc;
+    AGC agc;
     MovingAverage<float> ma;
     MovingMode<int> mm;
+
+#ifdef HAS_LIQUID
+    nco_crcf mixer;
+#endif
 
     // Compression codec variables for Audio
     std::unique_ptr<AudioEncoder> encoder;
 
-    std::multimap<std::pair<int, int>, std::shared_ptr<AudioClient>>
+    signal_slices_t
         &signal_slices;
     std::mutex &signal_slice_mtx;
 };

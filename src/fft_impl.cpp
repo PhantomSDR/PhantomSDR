@@ -6,6 +6,7 @@
 
 #include "fft.h"
 #include "utils.h"
+#include "utils/dsp.h"
 
 std::mutex fftwf_planner_mutex;
 
@@ -290,7 +291,7 @@ std::string kernel_window_real = R"<rawliteral>(
         outbuf[i_offset*2+1] = inbuf[i*2+1] * windowbuf[i_offset];
     }
     inline char log_power(float power, int power_offset) {
-        return convert_char_sat_rtz(20 * log10(power) + 127 + power_offset * 6.020599913279624);
+        return convert_char_sat_rtz(20 * log10(power) + 127. + power_offset * 6.020599913279624);
     }
     #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
     void kernel power_and_quantize(global float * restrict complexbuf, global float * restrict powerbuf,
@@ -398,7 +399,7 @@ void clFFT::free(float *buf) {
     queue.enqueueUnmapMemObject(buffers[buf], buf);
     buffers.erase(buf);
 }
-int clFFT::plan_c2c(direction d, int options) {
+int clFFT::plan_c2c(direction d, int) {
     cl_inbuf = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(float) * size * 2);
     cl_outbuf = cl::Buffer(context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
                            sizeof(float) * (size + additional_size) * 2);
@@ -425,7 +426,7 @@ int clFFT::plan_c2c(direction d, int options) {
     CL_CHECK_ERROR(clfftBakePlan(planHandle, 1, &queue(), NULL, NULL));
     return 0;
 }
-int clFFT::plan_r2c(int options) {
+int clFFT::plan_r2c(int) {
     outbuf = this->malloc(size * 2);
 
     cl_inbuf = cl::Buffer(context, CL_MEM_READ_ONLY, sizeof(float) * size);
@@ -511,6 +512,7 @@ int clFFT::execute() {
                             sizeof(float) * outbuf_len * 2, outbuf);
     queue.enqueueReadBuffer(cl_quantizedbuf, CL_FALSE, 0,
                             sizeof(int8_t) * outbuf_len * 2, quantizedbuf);
+
     queue.finish();
     return err;
 }

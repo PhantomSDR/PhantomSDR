@@ -77,6 +77,15 @@ class broadcast_server : public PacketSender {
     virtual std::string ip_from_hdl(connection_hdl hdl);
     virtual void log(connection_hdl hdl, const std::string &msg);
 
+
+    virtual waterfall_slices_t &get_waterfall_slices();
+    virtual waterfall_mutexes_t &get_waterfall_slice_mtx();
+    virtual signal_slices_t &get_signal_slices();
+    virtual std::mutex &get_signal_slice_mtx();
+
+    virtual void broadcast_signal_changes(const std::string &unique_id, int l,
+                                          double m, int r);
+
   private:
     std::unique_ptr<FFT> fft;
     std::unique_ptr<SampleConverterBase> reader;

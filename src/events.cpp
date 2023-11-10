@@ -33,8 +33,7 @@ std::string broadcast_server::get_event_info() {
     info.signal_clients = signal_slices.size();
     if (show_other_users) {
         std::scoped_lock lk(signal_changes_mtx);
-        info.signal_changes = signal_changes;
-        signal_changes.clear();
+        info.signal_changes = std::move(signal_changes);
     }
     return glz::write_json(info);
 }
@@ -58,6 +57,16 @@ std::string broadcast_server::get_initial_state_info() {
     }
     return glz::write_json(info);
 }
+void broadcast_server::broadcast_signal_changes(const std::string &unique_id,
+                                                int l, double audio_mid,
+                                                int r) {
+    if (!show_other_users) {
+        return;
+    }
+    std::scoped_lock lk(signal_changes_mtx);
+    signal_changes[unique_id] = {l, audio_mid, r};
+}
+
 void broadcast_server::on_open_events(connection_hdl hdl) {
     events_connections.insert(hdl);
     m_server.send(hdl, get_initial_state_info(),
@@ -66,7 +75,7 @@ void broadcast_server::on_open_events(connection_hdl hdl) {
     server::connection_ptr con = m_server.get_con_from_hdl(hdl);
     con->set_close_handler(std::bind(&broadcast_server::on_close_events, this,
                                      std::placeholders::_1));
-    con->set_message_handler([](connection_hdl hdl, server::message_ptr msg) {
+    con->set_message_handler([](connection_hdl, server::message_ptr) {
         // Ignore messages
     });
 }

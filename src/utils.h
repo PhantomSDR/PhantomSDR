@@ -12,19 +12,6 @@
 
 #include <boost/circular_buffer.hpp>
 
-void build_hann_window(float *arr, int num);
-void build_blackman_harris_window(float *arr, int num);
-void polar_discriminator_fm(std::complex<float> *buf, std::complex<float> prev,
-                            float *output, size_t len);
-
-void dsp_negate_float(float *arr, size_t len);
-void dsp_negate_complex(std::complex<float> *arr, size_t len);
-void dsp_add_float(float *arr1, float *arr2, size_t len);
-void dsp_add_complex(std::complex<float> *arr1, std::complex<float> *arr2,
-                     size_t len);
-void dsp_am_demod(std::complex<float> *arr, float *output, size_t len);
-void dsp_float_to_int16(float *arr, int32_t *output, float mult, size_t len);
-
 std::string generate_unique_id();
 
 template <typename T> class Neumaier {
@@ -153,7 +140,7 @@ template <class T> class DCBlocker {
   public:
     DCBlocker() : DCBlocker(256) {}
     DCBlocker(int delay)
-        : delay{delay}, movingAverage1{delay}, movingAverage2{delay} {}
+        : delay{delay}, last{0}, movingAverage1{delay}, movingAverage2{delay} {}
     void setAlpha(float alpha) { this->alpha = alpha; }
     inline T processSample(T s) {
         float ma1 = movingAverage1.insert(s);
@@ -163,6 +150,9 @@ template <class T> class DCBlocker {
     void removeDC(T *arr, int length) {
         for (int i = 0; i < length; i++) {
             arr[i] = processSample(arr[i]);
+            /*T temp = arr[i] + alpha * last;
+            arr[i] = temp - last;
+            last = temp;*/
         }
     }
     void reset() {
@@ -172,33 +162,10 @@ template <class T> class DCBlocker {
 
   protected:
     int delay;
+    T last;
+    T alpha = 0.95;
     MovingAverage<T> movingAverage1;
     MovingAverage<T> movingAverage2;
 };
 
-// https://github.com/sile/dagc
-template <class T> class AGC {
-  public:
-    AGC() : AGC(0.05, 0.001) {}
-    AGC(T target, T distortion_factor) : distortion_factor{distortion_factor}, gain{1}, target{target} {}
-    void setTarget(T target) { this->target = target; }
-    inline T processSample(T s) {
-        s *= gain;
-        T y = (s * s) / target;
-        T z = 1.0f + (distortion_factor * (1.0f - y));
-        gain *= z;
-        return s;
-    }
-    void applyAGC(T *arr, int length) {
-        for (int i = 0; i < length; i++) {
-            arr[i] = processSample(arr[i]);
-        }
-    }
-    void reset() {}
-
-  protected:
-    T distortion_factor;
-    T gain;
-    T target;
-};
 #endif
