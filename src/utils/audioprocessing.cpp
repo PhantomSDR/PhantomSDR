@@ -1,11 +1,6 @@
 #include "audioprocessing.h"
 
-#include <algorithm>
-#include <cassert>
 #include <cmath>
-#include <fstream>
-#include <iostream>
-#include <vector>
 
 AGC::AGC(float desiredLevel,  // Target level to normalize audio (-1 to 1 range)
          float attackTimeMs,  // Fast reaction to rising levels
@@ -58,11 +53,11 @@ void AGC::process(float *arr, size_t len) {
 
             // Apply the attack/release smoothing
             if (desired_gain < gain) {
-                gain = // std::max(desired_gain,
-                    gain - attack_coeff * (gain - desired_gain);
+                gain = std::max(desired_gain,
+                    gain - attack_coeff * (gain - desired_gain));
             } else {
-                gain = // std::min(desired_gain,
-                    gain + release_coeff * (desired_gain - gain);
+                gain = std::min(desired_gain,
+                    gain + release_coeff * (desired_gain - gain));
             }
             // Apply the gain to the current sample
             arr[i] = current_sample * gain;

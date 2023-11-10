@@ -1,8 +1,6 @@
 #include "dsp.h"
 
 //#include <immintrin.h>
-#include <iostream>
-#include <algorithm>
 #include <memory>
 
 void build_hann_window(float *arr, int num) {
