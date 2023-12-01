@@ -53,11 +53,11 @@ void AGC::process(float *arr, size_t len) {
 
             // Apply the attack/release smoothing
             if (desired_gain < gain) {
-                gain = std::max(desired_gain,
-                    gain - attack_coeff * (gain - desired_gain));
+                gain = 
+                    gain - attack_coeff * (gain - desired_gain);
             } else {
-                gain = std::min(desired_gain,
-                    gain + release_coeff * (desired_gain - gain));
+                gain = 
+                    gain + release_coeff * (desired_gain - gain);
             }
             // Apply the gain to the current sample
             arr[i] = current_sample * gain;
