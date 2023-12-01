@@ -6,6 +6,9 @@
 - Can handle high sample rate SDRs (70MSPS real, 35MSPS IQ)
 - Support for both IQ and real data
 
+## Screenshots
+![Screenshot](/docs/screenshot.jpg)
+
 ## Building
 Optional dependencies such as cuFFT or clFFT can be installed too.
 ### Ubuntu Prerequisites
