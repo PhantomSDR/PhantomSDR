@@ -13,12 +13,12 @@
 Optional dependencies such as cuFFT or clFFT can be installed too.
 ### Ubuntu Prerequisites
 ```
-apt install build-essential cmake pkg-config meson libfftw3-dev rapidjson-dev libwebsocketpp-dev libflac++-dev libvolk2-dev zlib1g-dev libzstd-dev libboost-all-dev libopus-dev
+apt install build-essential cmake pkg-config meson libfftw3-dev libwebsocketpp-dev libflac++-dev zlib1g-dev libzstd-dev libboost-all-dev libopus-dev
 ```
 
 ### Fedora Prerequisites
 ```
-dnf install g++ meson cmake fftw3-devel rapidjson-devel websocketpp-devel flac-devel volk-devel zlib-devel boost-devel libzstd-devel opus-devel
+dnf install g++ meson cmake fftw3-devel websocketpp-devel flac-devel zlib-devel boost-devel libzstd-devel opus-devel
 ```
 
 ### Building the binary
