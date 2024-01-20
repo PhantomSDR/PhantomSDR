@@ -6,8 +6,6 @@
 
 #include <fftw3.h>
 
-#include <volk/volk.h>
-
 // Main FFT loop to process input samples
 void broadcast_server::fft_task() {
 

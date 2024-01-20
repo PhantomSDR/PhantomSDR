@@ -77,7 +77,6 @@ cuda_dep = dependency('cuda', required : false)
 cufft_dep = dependency('cufft', required : false)
 opencl_dep = dependency('OpenCL', required : false)
 clfft_dep = dependency('clFFT', required : false)
-mkl_dep = dependency('mkl-dynamic-ilp64-iomp', required : false)
 stdcppfs_dep = cpp.find_library('stdc++fs', required : false)
 
 cuda_srcs = []
