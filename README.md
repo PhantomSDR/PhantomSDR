@@ -7,6 +7,8 @@
 - Support for both IQ and real data
 
 ## Screenshots
+
+With an RX888 SDR:
 ![Screenshot](/docs/screenshot.jpg)
 
 ## Building
