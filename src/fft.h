@@ -90,12 +90,6 @@ class noFFT : public FFT {
     }
 };
 
-class errorFFT : public noFFT {
-  public:
-    errorFFT(std::string error) : noFFT(0, 0) { throw error; }
-    ~errorFFT() {}
-};
-
 class FFTW : public FFT {
   public:
     FFTW(size_t size, int nthreads, int downsample_levels);
