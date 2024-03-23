@@ -146,17 +146,6 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
         std::placeholders::_2, std::static_pointer_cast<Client>(client)));
 }
 
-void broadcast_server::signal_task() {
-    // For IQ input, the lowest frequency is in the middle
-    while (running) {
-        // Wait for the FFT to be ready
-        // std::shared_lock lk(fft_mutex);
-        // fft_processed.wait(lk, [&] { return signal_processing; });
-        signal_loop();
-        signal_processing = 0;
-    }
-}
-
 // Iterates through the client list to send the slices
 void broadcast_server::signal_loop() {
     int base_idx = 0;
@@ -240,14 +229,4 @@ void broadcast_server::waterfall_loop(int8_t *fft_power_quantized) {
         fft_power_quantized += (fft_result_size >> i);
     }
     waterfall_processing = 0;
-}
-void broadcast_server::waterfall_task() {
-    while (running) {
-        // std::shared_lock lk(fft_mutex);
-        //  Wait for the FFT to be ready
-        //  fft_processed.wait(lk, [&] { return waterfall_processing; });
-        //  waterfall_loop(fft_power, fft_power_quantized_full,
-        //  fft_power_scratch);
-        waterfall_processing = 0;
-    }
 }

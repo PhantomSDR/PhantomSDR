@@ -267,6 +267,10 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
             }
         }
 
+        // Copy the half to add in the next frame
+        std::copy(audio_real.begin() + (audio_fft_size / 2), audio_real.end(),
+                  audio_real_prev.begin());
+
         // DC removal
         dc.removeDC(audio_real.data(), audio_fft_size / 2);
 
@@ -275,10 +279,6 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
         // Quantize into 16 bit audio to save bandwidth
         dsp_float_to_int16(audio_real.data(), audio_real_int16.data(),
                            65536 / 4, audio_fft_size / 2);
-
-        // Copy the half to add in the next frame
-        std::copy(audio_real.begin() + (audio_fft_size / 2), audio_real.end(),
-                  audio_real_prev.begin());
 
         // Set audio details
         encoder->set_data(frame_num, audio_l, audio_mid, audio_r,
@@ -300,7 +300,8 @@ void AudioClient::on_window_message(int new_l, std::optional<double> &m,
     if (!m.has_value()) {
         return;
     }
-    if (new_l < 0 || new_r > fft_result_size || new_l > new_r) {
+    if (new_l < 0 || new_l >= fft_result_size || new_r < 0 ||
+        new_r >= fft_result_size || new_l > new_r) {
         return;
     }
     if (new_r - new_l > audio_fft_size) {
