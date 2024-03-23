@@ -149,6 +149,7 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
                                   buf + copy_r - audio_l,
                                   audio_fft_input.get() + audio_m - copy_r + 1);
                 fftwf_execute(p_real);
+                std::reverse(audio_real.begin(), audio_real.end());
             }
             // On every other frame, the audio waveform is inverted due to the
             // 50% overlap This only happens when downconverting by either even
@@ -158,8 +159,8 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
                  (audio_m_idx % 2 == 1 && is_real))) {
                 dsp_negate_float(audio_real.data(), audio_fft_size);
             } else if (demodulation == LSB && frame_num % 2 == 1 &&
-                       ((audio_m_idx % 2 == 1 && !is_real) ||
-                        (audio_m_idx % 2 == 0 && is_real))) {
+                       ((audio_m_idx % 2 == 0 && !is_real) ||
+                        (audio_m_idx % 2 == 1 && is_real))) {
                 dsp_negate_float(audio_real.data(), audio_fft_size);
             }
 
