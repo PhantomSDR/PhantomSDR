@@ -183,7 +183,7 @@ void broadcast_server::run(uint16_t port) {
     fft_thread = std::thread(&broadcast_server::fft_task, this);
 
     set_event_timer();
-
+    server_threads = 1;
     if (server_threads == 1) {
         m_server.run();
     } else {

@@ -90,12 +90,14 @@ void broadcast_server::fft_task() {
         // Enqueue tasks once the fft is ready
         if (!signal_processing) {
             signal_processing = 1;
-            m_server.get_io_service().post(signal_loop_fn);
+            //m_server.get_io_service().post(signal_loop_fn);
+            signal_loop_fn();
         }
         if (frame_num % skip_num == 0) {
             if (!waterfall_processing) {
                 waterfall_processing = 1;
-                m_server.get_io_service().post(waterfall_loop_fn);
+                //m_server.get_io_service().post(waterfall_loop_fn);
+                waterfall_loop_fn();
             }
         }
         frame_num++;

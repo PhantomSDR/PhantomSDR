@@ -22,7 +22,7 @@ template <typename T> struct type_ {
     using type = T;
 };
 
-template <typename T> void convert(float *arr, T *scratch, float scale, size_t num) {
+template <typename T, typename T_signed> void convert(float *arr, T_signed *scratch, float scale, size_t num) {
     arr = std::assume_aligned<64>(arr);
     scratch = std::assume_aligned<64>(scratch);
     //[[assume(num % (64 / sizeof(T)) == 0)]];
@@ -38,13 +38,12 @@ template <typename T> void convert(float *arr, T *scratch, float scale, size_t n
 template <typename T> void SampleConverter<T>::read(float *arr, int num) {
     // Use the last part of the array as a scratch buffer
     T *scratch;
-    if (sizeof(T) > sizeof(float)) {
+    if constexpr (sizeof(T) > sizeof(float)) {
         scratch = new T[num];
     } else {
         scratch = ((T *)&arr[num]) - num;
     }
     reader->read(scratch, sizeof(T) * num);
-
     auto constexpr static unsigned_type = []() {
         if constexpr (std::is_unsigned<T>::value) {
             return type_<typename std::make_signed<T>::type>{};
@@ -60,8 +59,8 @@ template <typename T> void SampleConverter<T>::read(float *arr, int num) {
             return 1.;
         }
     }();
-    convert(arr, scratch, scale, num);
-    if (sizeof(T) > sizeof(float)) {
+    convert<T, T_signed>(arr, (T_signed*)scratch, scale, num);
+    if constexpr (sizeof(T) > sizeof(float)) {
         delete[] scratch;
     }
 }
