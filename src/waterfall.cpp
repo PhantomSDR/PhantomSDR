@@ -48,7 +48,6 @@ void WaterfallClient::send_waterfall(int8_t *buf, size_t frame_num) {
     } catch (...) {
         // std::cout << "waterfall client disconnect" << std::endl;
     }
-    processing = 0;
 }
 
 void WaterfallClient::on_window_message(int new_l, std::optional<double> &,

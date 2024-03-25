@@ -164,9 +164,6 @@ broadcast_server::broadcast_server(
     // Init data structures
     waterfall_slices.resize(downsample_levels);
     waterfall_slice_mtx.resize(downsample_levels);
-
-    waterfall_processing = 0;
-    signal_processing = 0;
 }
 
 void broadcast_server::run(uint16_t port) {
@@ -183,24 +180,19 @@ void broadcast_server::run(uint16_t port) {
     fft_thread = std::thread(&broadcast_server::fft_task, this);
 
     set_event_timer();
-    server_threads = 1;
-    if (server_threads == 1) {
-        m_server.run();
-    } else {
-        std::vector<std::thread> threads;
-        for (int i = 0; i < server_threads; i++) {
-            threads.emplace_back(std::thread([&] { m_server.run(); }));
-        }
-        for (int i = 0; i < server_threads; i++) {
-            threads[i].join();
-        }
+    std::vector<std::thread> threads;
+    // Spawn one less thread, use main thread as well
+    for (int i = 0; i < server_threads - 1; i++) {
+        threads.emplace_back(std::thread([&] { m_server.run(); }));
+    }
+    m_server.run();
+    for (int i = 0; i < server_threads - 1; i++) {
+        threads[i].join();
     }
     fft_thread.join();
 }
 void broadcast_server::stop() {
     running = false;
-    signal_processing = 1;
-    waterfall_processing = 1;
     fft_processed.notify_all();
 
     m_server.stop_listening();

@@ -147,36 +147,35 @@ void broadcast_server::on_open_signal(connection_hdl hdl,
 }
 
 // Iterates through the client list to send the slices
-void broadcast_server::signal_loop() {
+std::vector<std::future<void>> broadcast_server::signal_loop() {
     int base_idx = 0;
     if (!is_real) {
         base_idx = fft_size / 2 + 1;
     }
     std::scoped_lock lg(signal_slice_mtx);
+    auto &io_service = m_server.get_io_service();
+
+    // Completion futures
+    std::vector<std::future<void>> futures;
+    futures.reserve(signal_slices.size());
+
     // Send the apprioriate signal slice to the client
     for (auto &[slice, data] : signal_slices) {
         auto &[l_idx, r_idx] = slice;
         // If the client is slow, avoid unnecessary buffering and drop the
         // audio
         auto con = m_server.get_con_from_hdl(data->hdl);
-        if (con->get_buffered_amount() <= 1000000) {
-            if (server_threads == 1) {
-                data->send_audio(
-                    &fft_buffer[(l_idx + base_idx) % fft_result_size],
-                    frame_num);
-            } else {
-                if (!data->processing) {
-                    data->processing = 1;
-                    m_server.get_io_service().post(
-                        con->get_strand()->wrap(std::bind(
-                            &AudioClient::send_audio, data,
-                            &fft_buffer[(l_idx + base_idx) % fft_result_size],
-                            frame_num)));
-                }
-            }
+        if (con->get_buffered_amount() > 1000000) {
+            continue;
         }
+        // Equivalent to
+        // data->send_audio(&fft_buffer[(l_idx + base_idx) % fft_result_size],
+        // frame_num);
+        futures.emplace_back(io_service.post(boost::asio::use_future(std::bind(
+            &AudioClient::send_audio, data,
+            &fft_buffer[(l_idx + base_idx) % fft_result_size], frame_num))));
     }
-    signal_processing = 0;
+    return futures;
 }
 
 void broadcast_server::on_open_waterfall(connection_hdl hdl) {
@@ -199,10 +198,14 @@ void broadcast_server::on_open_waterfall(connection_hdl hdl) {
         std::placeholders::_2, std::static_pointer_cast<Client>(client)));
 }
 
-void broadcast_server::waterfall_loop(int8_t *fft_power_quantized) {
+std::vector<std::future<void>>
+broadcast_server::waterfall_loop(int8_t *fft_power_quantized) {
+    // Completion futures
+    std::vector<std::future<void>> futures;
+    futures.reserve(signal_slices.size());
 
+    auto &io_service = m_server.get_io_service();
     for (int i = 0; i < downsample_levels; i++) {
-
         // Iterate over each waterfall client and send each slice
         std::scoped_lock lg(waterfall_slice_mtx[i]);
         for (auto &[slice, data] : waterfall_slices[i]) {
@@ -210,23 +213,19 @@ void broadcast_server::waterfall_loop(int8_t *fft_power_quantized) {
             // If the client is slow, avoid unnecessary buffering and
             // drop the packet
             auto con = m_server.get_con_from_hdl(data->hdl);
-            if (con->get_buffered_amount() <= 1000000) {
-                if (server_threads == 1) {
-                    data->send_waterfall(&fft_power_quantized[l_idx],
-                                         frame_num);
-                } else {
-                    if (!data->processing) {
-                        data->processing = 1;
-                        m_server.get_io_service().post(con->get_strand()->wrap(
-                            std::bind(&WaterfallClient::send_waterfall, data,
-                                      &fft_power_quantized[l_idx], frame_num)));
-                    }
-                }
+            if (con->get_buffered_amount() > 1000000) {
+                continue;
             }
+            // Equivalent to
+            // data->send_waterfall(&fft_power_quantized[l_idx],frame_num);
+            futures.emplace_back(
+                io_service.post(boost::asio::use_future(
+                    std::bind(&WaterfallClient::send_waterfall, data,
+                              &fft_power_quantized[l_idx], frame_num))));
         }
 
         // Prevent overwrite of previous level's quantized waterfall
         fft_power_quantized += (fft_result_size >> i);
     }
-    waterfall_processing = 0;
+    return futures;
 }

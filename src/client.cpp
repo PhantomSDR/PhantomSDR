@@ -3,8 +3,7 @@
 #include "glaze/glaze.hpp"
 
 Client::Client(connection_hdl hdl, PacketSender &sender, conn_type type)
-    : type{type}, hdl{hdl}, sender{sender}, frame_num{0}, mute{false},
-      processing{0} {}
+    : type{type}, hdl{hdl}, sender{sender}, frame_num{0}, mute{false} {}
 
 void PacketSender::send_binary_packet(connection_hdl hdl, const void *data,
                                       size_t size) {

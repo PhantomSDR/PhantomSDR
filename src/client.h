@@ -113,8 +113,6 @@ class Client {
     // User requested frequency range
     int l;
     int r;
-
-    int processing;
 };
 
 #endif

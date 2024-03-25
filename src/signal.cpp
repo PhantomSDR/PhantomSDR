@@ -34,7 +34,6 @@ AudioClient::AudioClient(connection_hdl hdl, PacketSender &sender,
 
     unique_id = generate_unique_id();
     frame_num = 0;
-    processing = 0;
 
     // Audio demodulation scratch data structures
     audio_fft_input =
@@ -292,7 +291,6 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
     } catch (const std::exception &exc) {
         // std::cout << "client disconnect" << std::endl;
     }
-    processing = 0;
 }
 
 void AudioClient::on_window_message(int new_l, std::optional<double> &m,

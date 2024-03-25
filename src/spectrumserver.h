@@ -55,28 +55,25 @@ class broadcast_server : public PacketSender {
     // Signal functions, audio demodulation
     void on_open_signal(connection_hdl hdl, conn_type signal_type);
     void on_close_signal(connection_hdl hdl, std::shared_ptr<AudioClient> &d);
-    void signal_loop();
-    void signal_loop_multi();
-    void signal_task();
+    std::vector<std::future<void>> signal_loop();
 
     // Waterfall functions
     void on_open_waterfall(connection_hdl hdl);
     void on_close_waterfall(connection_hdl hdl,
                             std::shared_ptr<WaterfallClient> &d);
-    void waterfall_loop(int8_t *fft_power_quantized);
-    void waterfall_task();
+    std::vector<std::future<void>> waterfall_loop(int8_t *fft_power_quantized);
 
-    virtual void
-    send_binary_packet(connection_hdl hdl,
-                       const std::initializer_list<std::pair<const void *, size_t>> &bufs);
+    virtual void send_binary_packet(
+        connection_hdl hdl,
+        const std::initializer_list<std::pair<const void *, size_t>> &bufs);
     virtual void send_binary_packet(connection_hdl hdl, const void *data,
                                     size_t size);
-    virtual void send_text_packet(connection_hdl hdl,
-                                  const std::initializer_list<std::string> &data);
+    virtual void
+    send_text_packet(connection_hdl hdl,
+                     const std::initializer_list<std::string> &data);
     virtual void send_text_packet(connection_hdl hdl, const std::string &data);
     virtual std::string ip_from_hdl(connection_hdl hdl);
     virtual void log(connection_hdl hdl, const std::string &msg);
-
 
     virtual waterfall_slices_t &get_waterfall_slices();
     virtual waterfall_mutexes_t &get_waterfall_slice_mtx();
@@ -150,9 +147,6 @@ class broadcast_server : public PacketSender {
     std::complex<float> *fft_buffer;
     // std::shared_mutex fft_mutex;
     std::condition_variable_any fft_processed;
-
-    int waterfall_processing;
-    int signal_processing;
 
     // Dedicated threads for FFT
     std::thread fft_thread;

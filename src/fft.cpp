@@ -41,6 +41,8 @@ void broadcast_server::fft_task() {
                                        fft->get_quantized_buffer());
 
     std::future<void> buffer_read = std::async(std::launch::async, [] {});
+    std::vector<std::future<void>> signal_futures;
+    std::vector<std::future<void>> waterfall_futures;
 
     while (running) {
         // Read, convert and scale the input
@@ -77,6 +79,14 @@ void broadcast_server::fft_task() {
             continue;
         }
 
+        // Wait for all the signal and waterfall clients to finish
+        for (auto &f : signal_futures) {
+            f.wait();
+        }
+        for (auto &f : waterfall_futures) {
+            f.wait();
+        }
+
         fft->execute();
         if (!is_real) {
 
@@ -88,17 +98,9 @@ void broadcast_server::fft_task() {
         }
 
         // Enqueue tasks once the fft is ready
-        if (!signal_processing) {
-            signal_processing = 1;
-            //m_server.get_io_service().post(signal_loop_fn);
-            signal_loop_fn();
-        }
+        signal_futures = signal_loop_fn();
         if (frame_num % skip_num == 0) {
-            if (!waterfall_processing) {
-                waterfall_processing = 1;
-                //m_server.get_io_service().post(waterfall_loop_fn);
-                waterfall_loop_fn();
-            }
+            waterfall_futures = waterfall_loop_fn();
         }
         frame_num++;
 
