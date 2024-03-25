@@ -9,18 +9,58 @@
 #include <toml++/toml.h>
 
 broadcast_server::broadcast_server(
-    std::unique_ptr<SampleConverterBase> reader, toml::parse_result &config,
-    std::unordered_map<std::string, int64_t> &int_config,
-    std::unordered_map<std::string, std::string> &str_config)
-    : reader{std::move(reader)}, fft_size{(int)int_config["fft_size"]},
-      sps{(int)int_config["sps"]}, basefreq{int_config["frequency"]},
-      min_waterfall_fft{(int)int_config["waterfall_size"]},
-      is_real{str_config["signal"] == "real"},
-      audio_max_sps{(int)int_config["audio_sps"]},
-      fft_threads{(int)int_config["fft_threads"]},
-      m_docroot{str_config["htmlroot"]}, running{false},
-      show_other_users{int_config["otherusers"] > 0},
-      server_threads{(int)int_config["threads"]}, frame_num{0} {
+    std::unique_ptr<SampleConverterBase> reader, toml::parse_result &config)
+    : reader{std::move(reader)}, frame_num{0} {
+
+    server_threads = config["server"]["threads"].value_or(1);
+
+    // Read in configuration
+    std::optional<int> sps_config = config["input"]["sps"].value<int>();
+    if (!sps_config.has_value()) {
+        throw "Missing sample rate";
+    }
+    sps = sps_config.value();
+
+    std::optional<int64_t> frequency =
+        config["input"]["frequency"].value<int64_t>();
+    if (!frequency.has_value()) {
+        throw "Missing frequency";
+    }
+
+    std::string accelerator_str =
+        config["input"]["accelerator"].value_or("none");
+
+    fft_threads = config["input"]["fft_threads"].value_or(1);
+
+    std::optional<std::string> signal_type =
+        config["input"]["signal"].value<std::string>();
+    std::string signal_type_str =
+        signal_type.has_value()
+            ? boost::algorithm::to_lower_copy(signal_type.value())
+            : "";
+    if (!signal_type.has_value() ||
+        (signal_type_str != "real" && signal_type_str != "iq")) {
+        throw "Invalid signal type, specify either real or IQ input";
+    }
+
+    is_real = signal_type_str == "real";
+
+    fft_size = config["input"]["fft_size"].value_or(131072);
+    audio_max_sps = config["input"]["audio_sps"].value_or(12000);
+    min_waterfall_fft = config["input"]["waterfall_size"].value_or(1024);
+    show_other_users = config["server"]["otherusers"].value_or(1) > 0;
+
+    default_frequency =
+        config["input"]["defaults"]["frequency"].value_or(basefreq);
+    default_mode_str = boost::algorithm::to_upper_copy<std::string>(
+        config["input"]["defaults"]["modulation"].value_or("USB"));
+
+    waterfall_compression_str =
+        config["input"]["waterfall_compression"].value_or("zstd");
+    audio_compression_str =
+        config["input"]["audio_compression"].value_or("flac");
+
+    m_docroot = config["server"]["html_root"].value_or("html/");
 
     limit_audio = config["limits"]["audio"].value_or(1000);
     limit_waterfall = config["limits"]["waterfall"].value_or(1000);
@@ -31,13 +71,12 @@ broadcast_server::broadcast_server(
     // the sample rate
     if (is_real) {
         fft_result_size = fft_size / 2;
-        basefreq = int_config["frequency"];
+        basefreq = frequency.value();
     } else {
         fft_result_size = fft_size;
-        basefreq = int_config["frequency"] - sps / 2;
+        basefreq = frequency.value() - sps / 2;
     }
 
-    default_frequency = int_config["default_frequency"];
     if (default_frequency == -1) {
         default_frequency = basefreq + sps / 2;
     }
@@ -53,21 +92,19 @@ broadcast_server::broadcast_server(
     int offsets_5 = (5000LL) * fft_result_size / sps;
     int offsets_96 = (96000LL) * fft_result_size / sps;
 
-    default_mode_str = str_config["modulation"];
-
-    if (str_config["modulation"] == "LSB") {
+    if (default_mode_str == "LSB") {
         default_mode = LSB;
         default_l = default_m - offsets_3;
         default_r = default_m;
-    } else if (str_config["modulation"] == "AM") {
+    } else if (default_mode_str == "AM") {
         default_mode = AM;
         default_l = default_m - offsets_5;
         default_r = default_m + offsets_5;
-    } else if (str_config["modulation"] == "FM") {
+    } else if (default_mode_str == "FM") {
         default_mode = FM;
         default_l = default_m - offsets_5;
         default_r = default_m + offsets_5;
-    } else if (str_config["modulation"] == "WBFM") {
+    } else if (default_mode_str == "WBFM") {
         default_mode = FM;
         default_l = default_m - offsets_96;
         default_r = default_m + offsets_96;
@@ -83,7 +120,6 @@ broadcast_server::broadcast_server(
 
     audio_max_fft_size = ceil((double)audio_max_sps * fft_size / sps / 4.) * 4;
 
-    waterfall_compression_str = str_config["waterfall_compression"];
     if (waterfall_compression_str == "zstd") {
         waterfall_compression = WATERFALL_ZSTD;
     } else if (waterfall_compression_str == "av1") {
@@ -94,7 +130,6 @@ broadcast_server::broadcast_server(
 #endif
     }
 
-    audio_compression_str = str_config["audio_compression"];
     if (audio_compression_str == "flac") {
         audio_compression = AUDIO_FLAC;
     } else if (audio_compression_str == "opus") {
@@ -106,13 +141,13 @@ broadcast_server::broadcast_server(
     }
 
     fft_accelerator accelerator = CPU_FFTW;
-    if (str_config["accelerator"] == "cuda") {
+    if (accelerator_str == "cuda") {
         accelerator = GPU_cuFFT;
         std::cout << "Using CUDA" << std::endl;
-    } else if (str_config["accelerator"] == "opencl") {
+    } else if (accelerator_str == "opencl") {
         accelerator = GPU_clFFT;
         std::cout << "Using OpenCL" << std::endl;
-    } else if (str_config["accelerator"] == "mkl") {
+    } else if (accelerator_str == "mkl") {
         accelerator = CPU_mklFFT;
         std::cout << "Using MKL" << std::endl;
     }
@@ -233,49 +268,17 @@ int main(int argc, char **argv) {
             i++;
         }
         if (std::string(argv[i]) == "-h" || std::string(argv[i]) == "--help") {
-            std::cout << "Options:\n"
-                         "--help                             produce help message\n"
-                         "-c [ --config ] arg (=config.toml) config file\n";
+            std::cout
+                << "Options:\n"
+                   "--help                             produce help message\n"
+                   "-c [ --config ] arg (=config.toml) config file\n";
             return 0;
         }
     }
 
     auto config = toml::parse_file(config_file);
 
-    std::unordered_map<std::string, std::string> str_config;
-    std::unordered_map<std::string, int64_t> int_config;
-
-    int_config["port"] = config["server"]["port"].value_or(9002);
-    str_config["host"] = config["server"]["host"].value_or("0.0.0.0");
-    int_config["threads"] = config["server"]["threads"].value_or(1);
-
-    std::optional<int> sps = config["input"]["sps"].value<int>();
-    if (!sps.has_value()) {
-        std::cout << "Missing sample rate" << std::endl;
-        return 0;
-    }
-    int_config["sps"] = sps.value();
-
-    std::optional<int64_t> frequency =
-        config["input"]["frequency"].value<int64_t>();
-    if (!frequency.has_value()) {
-        std::cout << "Missing frequency" << std::endl;
-        return 0;
-    }
-    int_config["frequency"] = frequency.value();
-
-    std::optional<std::string> signal_type =
-        config["input"]["signal"].value<std::string>();
-    std::string signal_type_str =
-        signal_type.has_value()
-            ? boost::algorithm::to_lower_copy(signal_type.value())
-            : "";
-    if (!signal_type.has_value() ||
-        (signal_type_str != "real" && signal_type_str != "iq")) {
-        std::cout << "Specify either real or IQ input" << std::endl;
-        return 0;
-    }
-    str_config["signal"] = signal_type_str;
+    std::string host = config["server"]["host"].value_or("0.0.0.0");
 
     std::optional<std::string> driver_type =
         config["input"]["driver"]["name"].value<std::string>();
@@ -284,37 +287,16 @@ int main(int argc, char **argv) {
         return 0;
     }
     std::string driver_str = driver_type.value();
-    str_config["driver"] = driver_str;
 
     std::string input_format =
         config["input"]["driver"]["format"].value_or("f32");
     boost::algorithm::to_lower(input_format);
-    str_config["input_format"] = input_format;
-
-    str_config["accelerator"] = config["input"]["accelerator"].value_or("none");
-
-    int_config["fft_size"] = config["input"]["fft_size"].value_or(131072);
-    int_config["audio_sps"] = config["input"]["audio_sps"].value_or(12000);
-    int_config["waterfall_size"] =
-        config["input"]["waterfall_size"].value_or(1024);
-    int_config["fft_threads"] = config["input"]["fft_threads"].value_or(1);
-    int_config["otherusers"] = config["server"]["otherusers"].value_or(1);
-
-    int_config["default_frequency"] =
-        config["input"]["defaults"]["frequency"].value_or(-1);
-    str_config["modulation"] = boost::algorithm::to_upper_copy<std::string>(
-        config["input"]["defaults"]["modulation"].value_or("USB"));
-
-    str_config["waterfall_compression"] =
-        config["input"]["waterfall_compression"].value_or("zstd");
-    str_config["audio_compression"] =
-        config["input"]["audio_compression"].value_or("flac");
 
     // Initialise FFT threads if requested for multithreaded
-    if (int_config["fft_threads"] > 1) {
+    int fft_threads = config["input"]["fft_threads"].value_or(1);
+    if (fft_threads > 1) {
         fftwf_init_threads();
     }
-    str_config["htmlroot"] = config["server"]["html_root"].value_or("html/");
 
     // Set input to binary
     freopen(NULL, "rb", stdin);
@@ -339,9 +321,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    broadcast_server server(std::move(driver), config, int_config, str_config);
+    int port = config["server"]["port"].value_or(9002);
+    broadcast_server server(std::move(driver), config);
     g_signal = &server;
     std::signal(SIGINT, [](int) { g_signal->stop(); });
-    server.run(int_config["port"]);
+    server.run(port);
     std::exit(0);
 }

@@ -30,7 +30,7 @@ fft_deps += dependency('openmp')
 
 #message('CMake targets:\n - ' + '\n - '.join(cmake.target_list()))
 
-boost_dep = dependency('boost', modules : ['system', 'program_options', 'iostreams'])
+boost_dep = dependency('boost', modules : ['system', 'iostreams'])
 glaze_dep = dependency('glaze', required : false)
 if (not glaze_dep.found()
     or get_option('wrap_mode') == 'forcefallback'

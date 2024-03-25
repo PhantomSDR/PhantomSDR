@@ -25,9 +25,7 @@ typedef std::set<connection_hdl, std::owner_less<connection_hdl>>
 class broadcast_server : public PacketSender {
   public:
     broadcast_server(std::unique_ptr<SampleConverterBase> reader,
-                     toml::parse_result &config,
-                     std::unordered_map<std::string, int64_t> &int_config,
-                     std::unordered_map<std::string, std::string> &str_config);
+                     toml::parse_result &config);
     void run(uint16_t port);
     void stop();
 
