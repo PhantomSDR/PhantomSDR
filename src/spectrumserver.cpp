@@ -6,9 +6,6 @@
 
 #include <boost/algorithm/string.hpp>
 
-#include <boost/program_options.hpp>
-namespace po = boost::program_options;
-
 #include <toml++/toml.h>
 
 broadcast_server::broadcast_server(
@@ -227,21 +224,23 @@ broadcast_server *g_signal;
 
 int main(int argc, char **argv) {
     // Parse the options
-    po::options_description desc("Options");
-    desc.add_options()("help", "produce help message")(
-        "config,c", po::value<std::string>()->default_value("config.toml"),
-        "config file");
-
-    po::variables_map vm;
-    po::store(po::parse_command_line(argc, argv, desc), vm);
-    po::notify(vm);
-
-    if (vm.count("help")) {
-        std::cout << desc << "\n";
-        return 1;
+    std::string config_file;
+    for (int i = 1; i < argc; i++) {
+        if ((std::string(argv[i]) == "-c" ||
+             std::string(argv[i]) == "--config") &&
+            i + 1 < argc) {
+            config_file = argv[i + 1];
+            i++;
+        }
+        if (std::string(argv[i]) == "-h" || std::string(argv[i]) == "--help") {
+            std::cout << "Options:\n"
+                         "--help                             produce help message\n"
+                         "-c [ --config ] arg (=config.toml) config file\n";
+            return 0;
+        }
     }
 
-    auto config = toml::parse_file(vm["config"].as<std::string>());
+    auto config = toml::parse_file(config_file);
 
     std::unordered_map<std::string, std::string> str_config;
     std::unordered_map<std::string, int64_t> int_config;
