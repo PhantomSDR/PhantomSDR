@@ -165,7 +165,7 @@ std::vector<std::future<void>> broadcast_server::signal_loop() {
         // If the client is slow, avoid unnecessary buffering and drop the
         // audio
         auto con = m_server.get_con_from_hdl(data->hdl);
-        if (con->get_buffered_amount() > 1000000) {
+        if (con->get_buffered_amount() > 50000) {
             continue;
         }
         // Equivalent to
@@ -213,7 +213,7 @@ broadcast_server::waterfall_loop(int8_t *fft_power_quantized) {
             // If the client is slow, avoid unnecessary buffering and
             // drop the packet
             auto con = m_server.get_con_from_hdl(data->hdl);
-            if (con->get_buffered_amount() > 1000000) {
+            if (con->get_buffered_amount() > 50000) {
                 continue;
             }
             // Equivalent to
