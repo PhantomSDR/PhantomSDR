@@ -1,6 +1,6 @@
 #include "waterfall.h"
 #include "waterfallcompression.h"
-
+#include <iostream>
 #include <cmath>
 
 WaterfallClient::WaterfallClient(
@@ -65,16 +65,18 @@ void WaterfallClient::on_window_message(int new_l, std::optional<double> &,
     float new_r_f = new_r;
     int downsample_levels = waterfall_slices.size();
     int new_level = downsample_levels - 1;
+    float best_difference = new_r_f - new_l_f;
     for (int i = 0; i < downsample_levels; i++) {
-        new_level = i;
-        if (new_r_f - new_l_f <= min_waterfall_fft) {
-            break;
+        float send_size = abs((new_r_f - new_l_f) - min_waterfall_fft);
+        if (send_size < best_difference) {
+            best_difference = send_size;
+            new_level = i;
+            new_l = round(new_l_f);
+            new_r = round(new_r_f);
         }
         new_l_f /= 2;
         new_r_f /= 2;
     }
-    new_l = round(new_l_f);
-    new_r = round(new_r_f);
 
     // Since the parameters are modified, output the new parameters
 
