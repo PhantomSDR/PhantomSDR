@@ -3,10 +3,17 @@
 
 #include <cstdio>
 #include <iostream>
-
+#include <random>
+#include <thread>
 #include <boost/algorithm/string.hpp>
-
 #include <toml++/toml.h>
+#include <cstdlib> // For rand() and srand()
+#include <ctime>   // For time()
+#include <sstream> // For std::stringstream
+#include <iostream> // For std::cout
+#include <curl/curl.h> // For cURL functionality
+
+toml::table config;
 
 broadcast_server::broadcast_server(
     std::unique_ptr<SampleConverterBase> reader, toml::parse_result &config)
@@ -223,6 +230,93 @@ void broadcast_server::run(uint16_t port) {
     }
     fft_thread.join();
 }
+
+// To register on http://sdr-list.xyz
+void broadcast_server::update_websdr_list() {
+    // Seed the random number generator
+    std::srand(std::time(nullptr));
+
+    int port = config["server"]["port"].value_or(9002);
+    std::optional<int64_t> center_frequency = config["input"]["frequency"].value<int64_t>();
+    std::optional<int64_t> bandwidth = config["input"]["sps"].value<int64_t>();
+    std::string antenna = config["server"]["antenna"].value_or("N/A");
+    std::string websdr_name = config["server"]["websdr_name"].value_or("WebSDR_" + std::to_string(std::rand()));
+    std::string signal_type = config["input"]["signal"].value_or("real");
+
+    std::string websdr_id = std::to_string(std::rand());
+    if(signal_type == "real")
+    {
+        bandwidth = bandwidth.value_or(30000000) / 2;
+    }
+
+    if(center_frequency.value_or(15000000) == 0){
+        center_frequency = bandwidth.value_or(30000000) / 2;
+
+    }
+
+    while(true) {
+        int user_count = static_cast<int>(events_connections.size());
+
+        // Construct JSON payload manually
+        std::string json_data = "{";
+        json_data += "\"id\": \"" + websdr_id + "\", ";
+        json_data += "\"name\": \"" + websdr_name + "\", ";
+        json_data += "\"antenna\": \"" + antenna + "\", ";
+        json_data += "\"bandwidth\": " + std::to_string(bandwidth.value_or(30000000)) + ", ";
+        json_data += "\"users\": " + std::to_string(user_count) + ", ";
+        json_data += "\"center_frequency\": " + std::to_string(center_frequency.value_or(15000000)) + ", ";
+        json_data += "\"port\": " + std::to_string(port) + "}";
+
+        // Initialize cURL
+        CURL *curl;
+        CURLcode res;
+
+        // Initialize the cURL session
+        curl = curl_easy_init();
+        if(curl) {
+            // Set the URL for the POST request
+            curl_easy_setopt(curl, CURLOPT_URL, "http://api.sdr-list.xyz:5000/update_websdr");
+
+
+            // Dont print to stdout - This is the only way to do it sadly...
+            FILE *devnull = fopen("/dev/null", "w+");
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, devnull);
+
+
+            // Set the JSON data
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_data.c_str());
+
+            // Disable verbose output
+            curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
+
+            // Set the Content-Type header
+            struct curl_slist *headers = NULL;
+            headers = curl_slist_append(headers, "Content-Type: application/json");
+            headers = curl_slist_append(headers, "Host: api.sdr-list.xyz:5000"); // Add Host header
+            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+            // Set the Content-Length header
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, json_data.length());
+
+            // Perform the request
+            res = curl_easy_perform(curl);
+
+            // Check for errors
+            if(res != CURLE_OK)
+                std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+
+            // Clean up
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+
+        }
+
+        // Delay for 10 seconds before sending the next request
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+    }
+}
+
+
 void broadcast_server::stop() {
     running = false;
     fft_processed.notify_all();
@@ -276,7 +370,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    auto config = toml::parse_file(config_file);
+    config = toml::parse_file(config_file);
 
     std::string host = config["server"]["host"].value_or("0.0.0.0");
 
@@ -321,8 +415,15 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+
     int port = config["server"]["port"].value_or(9002);
+    bool register_online = config["server"]["register_online"].value_or(false);
     broadcast_server server(std::move(driver), config);
+
+    if(register_online) {
+        std::thread websdr_thread(&broadcast_server::update_websdr_list, &server); // Pass the instance to the thread
+        websdr_thread.detach(); // or websdr_thread.join();
+    }
     g_signal = &server;
     std::signal(SIGINT, [](int) { g_signal->stop(); });
     server.run(port);
