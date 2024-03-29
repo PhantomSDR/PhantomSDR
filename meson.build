@@ -11,6 +11,9 @@ project(
 add_project_arguments('-march=native', language: 'cpp')
 add_project_arguments('-ggdb3', language: 'cpp')
 add_project_arguments(['-std=c++23','-Wall','-Wextra','-Wpedantic'], language: 'cpp')
+
+
+
 #add_project_link_arguments(['-rdynamic', '-no-pie'], language: 'cpp')
 
 cpp = meson.get_compiler('cpp')
@@ -78,6 +81,8 @@ cufft_dep = dependency('cufft', required : false)
 opencl_dep = dependency('OpenCL', required : false)
 clfft_dep = dependency('clFFT', required : false)
 stdcppfs_dep = cpp.find_library('stdc++fs', required : false)
+curl_dep = dependency('libcurl')
+
 
 cuda_srcs = []
 
@@ -128,6 +133,7 @@ srcs = [
 ]
 srcs += cuda_srcs
 
+# Add cURL library to dependencies
 executable(
     'spectrumserver',
     srcs,
@@ -142,6 +148,7 @@ executable(
         codec_deps,
         zlib_dep,
         liquid_dep,
+        curl_dep,  # Add cURL dependency here
     ],
     link_language : 'cpp',
 )
