@@ -15,12 +15,12 @@ With an RX888 SDR:
 Optional dependencies such as cuFFT or clFFT can be installed too.
 ### Ubuntu Prerequisites
 ```
-apt install build-essential cmake pkg-config meson libfftw3-dev libwebsocketpp-dev libflac++-dev zlib1g-dev libzstd-dev libboost-all-dev libopus-dev
+apt install build-essential cmake pkg-config meson libfftw3-dev libwebsocketpp-dev libflac++-dev zlib1g-dev libzstd-dev libboost-all-dev libopus-dev libliquid-dev
 ```
 
 ### Fedora Prerequisites
 ```
-dnf install g++ meson cmake fftw3-devel websocketpp-devel flac-devel zlib-devel boost-devel libzstd-devel opus-devel
+dnf install g++ meson cmake fftw3-devel websocketpp-devel flac-devel zlib-devel boost-devel libzstd-devel opus-devel liquid-dsp-devel
 ```
 
 ### Building the binary
@@ -28,8 +28,7 @@ dnf install g++ meson cmake fftw3-devel websocketpp-devel flac-devel zlib-devel 
 git clone --recursive https://github.com/PhantomSDR/PhantomSDR.git
 cd PhantomSDR
 meson build --optimization 3
-cd build
-ninja
+meson compile -C build
 ```
 
 ## Examples

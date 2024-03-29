@@ -1,6 +1,5 @@
 #include "waterfall.h"
 #include "waterfallcompression.h"
-#include <iostream>
 #include <cmath>
 
 WaterfallClient::WaterfallClient(
@@ -59,7 +58,7 @@ void WaterfallClient::on_window_message(int new_l, std::optional<double> &,
     // Calculate which level should it be at
     // Each level decreases the amount of points available by 2
     // Use floating point to prevent integer rounding errors
-    // At most min_waterfall_fft samples shall be sent
+    // Find level closest to min_waterfall_fft samples
 
     float new_l_f = new_l;
     float new_r_f = new_r;
