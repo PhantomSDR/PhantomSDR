@@ -50,6 +50,9 @@ class broadcast_server : public PacketSender {
     // Main FFT loop to process input samples
     void fft_task();
 
+    // SDR List - http://sdr-list.xyz
+    void update_websdr_list();
+
     // Signal functions, audio demodulation
     void on_open_signal(connection_hdl hdl, conn_type signal_type);
     void on_close_signal(connection_hdl hdl, std::shared_ptr<AudioClient> &d);
