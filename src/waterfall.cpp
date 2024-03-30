@@ -1,6 +1,7 @@
+#include <cmath>
+
 #include "waterfall.h"
 #include "waterfallcompression.h"
-#include <cmath>
 
 WaterfallClient::WaterfallClient(
     connection_hdl hdl, PacketSender &sender,
@@ -64,7 +65,7 @@ void WaterfallClient::on_window_message(int new_l, std::optional<double> &,
     float new_r_f = new_r;
     int downsample_levels = waterfall_slices.size();
     int new_level = downsample_levels - 1;
-    float best_difference = new_r_f - new_l_f;
+    float best_difference = min_waterfall_fft * 2;
     for (int i = 0; i < downsample_levels; i++) {
         float send_size = abs((new_r_f - new_l_f) - min_waterfall_fft);
         if (send_size < best_difference) {

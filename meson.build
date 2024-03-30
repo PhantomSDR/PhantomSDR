@@ -39,6 +39,7 @@ if (not glaze_dep.found()
     glaze = cmake.subproject('glaze')
     glaze_dep = glaze.dependency('glaze_glaze')
 endif
+nlohmann_json_dep = dependency('nlohmann_json')
 
 
 liquid_dep = cpp.find_library('liquid', required : false)
@@ -142,6 +143,7 @@ executable(
         codec_deps,
         zlib_dep,
         liquid_dep,
+        nlohmann_json_dep,
     ],
     link_language : 'cpp',
 )

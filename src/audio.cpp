@@ -1,24 +1,34 @@
 #include "audio.h"
 
+#include <boost/container/small_vector.hpp>
+#include <iostream>
+
 AudioEncoder::AudioEncoder(websocketpp::connection_hdl hdl,
                            PacketSender &sender)
-    : hdl{hdl}, sender{sender}, packet(32, 0) {
+    : hdl{hdl}, sender{sender} {
     set_data(0, 0, 0, 0, 0);
+    stream = ZSTD_createCStream();
 }
 
-void AudioEncoder::set_data(uint64_t frame_num, int l, double m, int r, double pwr) {
-    header.frame_num = frame_num;
-    header.l = l;
-    header.r = r;
-    header.m = m;
-    header.pwr = pwr;
+AudioEncoder::~AudioEncoder() {
+    ZSTD_freeCStream(stream);
 }
 
-int AudioEncoder::send(const void *buffer, size_t bytes,
-                       unsigned) {
+void AudioEncoder::set_data(uint64_t frame_num, int l, double m, int r,
+                            double pwr) {
+    packet["frame_num"] = frame_num;
+    packet["l"] = l;
+    packet["m"] = m;
+    packet["r"] = r;
+    packet["pwr"] = pwr;
+}
+
+int AudioEncoder::send(const void *buffer, size_t bytes, unsigned) {
     try {
-        sender.send_binary_packet(hdl,
-                                  {{&header, sizeof(header)}, {buffer, bytes}});
+        packet["data"] = json::binary(
+            std::vector<uint8_t>((uint8_t *)buffer, (uint8_t *)buffer + bytes));
+        auto cbor = json::to_cbor(packet);
+        sender.send_binary_packet(hdl, cbor.data(), cbor.size());
         return 0;
     } catch (...) {
         return 1;
@@ -26,8 +36,8 @@ int AudioEncoder::send(const void *buffer, size_t bytes,
 }
 
 FLAC__StreamEncoderWriteStatus
-FlacEncoder::write_callback(const FLAC__byte buffer[], size_t bytes,
-                            unsigned, unsigned current_frame) {
+FlacEncoder::write_callback(const FLAC__byte buffer[], size_t bytes, unsigned,
+                            unsigned current_frame) {
     return send(buffer, bytes, current_frame)
                ? FLAC__STREAM_ENCODER_WRITE_STATUS_FATAL_ERROR
                : FLAC__STREAM_ENCODER_WRITE_STATUS_OK;

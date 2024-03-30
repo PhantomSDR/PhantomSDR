@@ -3,6 +3,9 @@
 
 #include "client.h"
 
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
+
 #ifdef HAS_LIBAOM
 #include "aom/aom_encoder.h"
 #include "aom/aomcx.h"
@@ -25,10 +28,7 @@ class WaterfallEncoder {
     websocketpp::connection_hdl hdl;
     PacketSender &sender;
 
-    struct {
-        uint64_t frame_num;
-        uint32_t l, r;
-    } header;
+    json packet;
 };
 
 class ZstdEncoder : public WaterfallEncoder {

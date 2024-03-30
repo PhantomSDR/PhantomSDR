@@ -7,7 +7,7 @@ AGC::AGC(float desiredLevel,  // Target level to normalize audio (-1 to 1 range)
          float releaseTimeMs, // Slower fallback to avoid pumping effect
          float lookAheadTimeMs, // Look-ahead for peak detection
          float sr)              // Sample rate
-    : desired_level(desiredLevel), gain(1.0f), sample_rate(sr) {
+    : desired_level(desiredLevel), gain(0), sample_rate(sr) {
     look_ahead_samples =
         static_cast<size_t>(lookAheadTimeMs * sample_rate / 1000.0f);
     attack_coeff = 1 - exp(-1.0f / (attackTimeMs * 0.001f * sample_rate));
@@ -68,6 +68,7 @@ void AGC::process(float *arr, size_t len) {
 }
 
 void AGC::reset() {
-    gain = 1.0f;
+    gain = 0;
     lookahead_buffer.clear();
+    lookahead_max.clear();
 }

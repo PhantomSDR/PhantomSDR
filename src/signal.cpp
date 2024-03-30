@@ -320,6 +320,7 @@ void AudioClient::on_demodulation_message(std::string &demodulation) {
     } else if (demodulation == "FM") {
         this->demodulation = FM;
     }
+    this->agc.reset();
 }
 
 void AudioClient::on_close() {

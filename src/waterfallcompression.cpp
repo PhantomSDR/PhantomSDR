@@ -11,25 +11,26 @@ void WaterfallEncoder::send_packet(void *packet, size_t bytes) {
 }
 
 void WaterfallEncoder::set_data(uint64_t frame_num, int l, int r) {
-    header.frame_num = frame_num;
-    header.l = l;
-    header.r = r;
+    packet["frame_num"] = frame_num;
+    packet["l"] = l;
+    packet["r"] = r;
 }
-ZstdEncoder::ZstdEncoder(connection_hdl hdl, PacketSender &sender,
-                         int)
+ZstdEncoder::ZstdEncoder(connection_hdl hdl, PacketSender &sender, int)
     : WaterfallEncoder(hdl, sender) {
     stream = ZSTD_createCStream();
 }
 ZstdEncoder::~ZstdEncoder() { ZSTD_freeCStream(stream); }
 
-int ZstdEncoder::send(const void *buffer, size_t bytes, uint64_t frame_num, int l, int r) {
+int ZstdEncoder::send(const void *buffer, size_t bytes, uint64_t frame_num,
+                      int l, int r) {
     set_data(frame_num, l, r);
-    boost::container::small_vector<uint8_t, 4096> packet;
-    packet.resize(ZSTD_compressBound(sizeof(header) + bytes));
-    ZSTD_inBuffer header_buf = {&header, sizeof(header), 0};
-    ZSTD_inBuffer data = {buffer, bytes, 0};
-    ZSTD_outBuffer packet_out = {packet.data(), packet.size(), 0};
-    ZSTD_compressStream2(stream, &packet_out, &header_buf, ZSTD_e_continue);
+    packet["data"] = json::binary(
+        std::vector<uint8_t>((uint8_t *)buffer, (uint8_t *)buffer + bytes));
+    auto cbor = json::to_cbor(packet);
+    boost::container::small_vector<uint8_t, 4096> zstd_packet;
+    zstd_packet.resize(ZSTD_compressBound(cbor.size()));
+    ZSTD_inBuffer data = {cbor.data(), cbor.size(), 0};
+    ZSTD_outBuffer packet_out = {zstd_packet.data(), zstd_packet.size(), 0};
     ZSTD_compressStream2(stream, &packet_out, &data, ZSTD_e_flush);
     sender.send_binary_packet(hdl, packet_out.dst, packet_out.pos);
     return 0;
@@ -80,7 +81,8 @@ AV1Encoder::AV1Encoder(connection_hdl hdl, PacketSender &sender,
     aom_img_add_metadata(&image, 4, (const uint8_t *)header_multi_compressed,
                          sizeof(header_multi_compressed), AOM_MIF_ANY_FRAME);
 }
-int AV1Encoder::send(const void *buffer, size_t bytes, uint64_t frame_num, int l, int r) {
+int AV1Encoder::send(const void *buffer, size_t bytes, uint64_t frame_num,
+                     int l, int r) {
     aom_codec_err_t err;
     const uint8_t *buffer_arr = (uint8_t *)buffer;
     int stride = image.stride[0];
@@ -101,7 +103,8 @@ int AV1Encoder::send(const void *buffer, size_t bytes, uint64_t frame_num, int l
         size_t metadata_sz = ZSTD_compress(
             &header_multi_compressed[1], sizeof(header_multi_compressed),
             header_multi, sizeof(header_multi), 5);
-        aom_img_add_metadata(&image, OBU_METADATA_TYPE_ITUT_T35, (const uint8_t *)header_multi_compressed,
+        aom_img_add_metadata(&image, OBU_METADATA_TYPE_ITUT_T35,
+                             (const uint8_t *)header_multi_compressed,
                              metadata_sz + 1, AOM_MIF_ANY_FRAME);
         // memcpy(metadata->payload, header_multi_u32, (1 + 4 * 8) * 4);
 
