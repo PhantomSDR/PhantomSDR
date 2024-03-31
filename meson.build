@@ -73,6 +73,7 @@ endif
 zlib_dep = dependency('zlib')
 websocketpp_dep = subproject('websocketpp').get_variable('websocketpp_dep')
 tomlplusplus_dep = dependency('tomlplusplus')
+openssl_dep = dependency('openssl')
 
 cuda_dep = dependency('cuda', required : false)
 cufft_dep = dependency('cufft', required : false)
@@ -116,6 +117,7 @@ srcs = [
     'src/signal.cpp',
     'src/waterfall.cpp',
     'src/events.cpp',
+    'src/register.cpp',
     'src/audio.cpp',
     'src/waterfallcompression.cpp',
 
@@ -144,6 +146,7 @@ executable(
         zlib_dep,
         liquid_dep,
         nlohmann_json_dep,
+        openssl_dep,
     ],
     link_language : 'cpp',
 )
