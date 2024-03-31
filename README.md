@@ -1,4 +1,8 @@
 # Spectrum Distributor
+## Receiver list
+https://phantomsdr.github.io/servers
+
+Will be empty for a while until someone decides to host!
 
 ## Features
 - Web interface allowing many users (>100 on a good setup)
