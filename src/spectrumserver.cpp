@@ -62,6 +62,24 @@ broadcast_server::broadcast_server(
 
     m_docroot = config["server"]["html_root"].value_or("html/");
 
+    // Registration info
+    registration_enable = config["register"]["enable"].value_or(false);
+    registration.name = config["register"]["name"].value_or("SDR");
+    registration.hardware = config["register"]["hardware"].value_or("");
+    registration.antenna = config["register"]["antenna"].value_or("");
+    registration.users = 0;
+    registration.https = false;
+    std::string url = config["register"]["url"].value_or("");
+    if (url.length()) {
+        registration.url = url;
+    }
+    std::string password = config["register"]["password"].value_or("");
+    if (password.length()) {
+        registration.password = password;
+    } else {
+        registration.password = generate_unique_id();
+    }
+
     limit_audio = config["limits"]["audio"].value_or(1000);
     limit_waterfall = config["limits"]["waterfall"].value_or(1000);
     limit_events = config["limits"]["events"].value_or(1000);
@@ -76,6 +94,9 @@ broadcast_server::broadcast_server(
         fft_result_size = fft_size;
         basefreq = frequency.value() - sps / 2;
     }
+
+    registration.bandwidth = is_real ? sps / 2 : sps;
+    registration.base_frequency = frequency.value();
 
     if (default_frequency == -1) {
         default_frequency = basefreq + sps / 2;
@@ -211,6 +232,11 @@ void broadcast_server::run(uint16_t port) {
     m_server.start_accept();
     fft_thread = std::thread(&broadcast_server::fft_task, this);
 
+    registration.port = port;
+    std::thread registration_thread;
+    if (registration_enable) {
+        registration_thread = std::thread(&broadcast_server::register_server, this);
+    }
     set_event_timer();
     std::vector<std::thread> threads;
     // Spawn one less thread, use main thread as well
@@ -221,6 +247,7 @@ void broadcast_server::run(uint16_t port) {
     for (int i = 0; i < server_threads - 1; i++) {
         threads[i].join();
     }
+    registration_thread.join();
     fft_thread.join();
 }
 void broadcast_server::stop() {

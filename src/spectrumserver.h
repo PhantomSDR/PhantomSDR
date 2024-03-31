@@ -78,6 +78,8 @@ class broadcast_server : public PacketSender {
     virtual signal_slices_t &get_signal_slices();
     virtual std::mutex &get_signal_slice_mtx();
 
+    virtual void register_server();
+
     virtual void broadcast_signal_changes(const std::string &unique_id, int l,
                                           double m, int r);
 
@@ -117,6 +119,38 @@ class broadcast_server : public PacketSender {
     int default_r;
     std::string default_mode_str;
     demodulation_mode default_mode;
+
+/*
+
+    id: String,
+    name: String,
+    hardware: Option<String>,
+    antenna: Option<String>,
+    bandwidth: f64,
+    users: Option<i32>,
+    remarks: Option<String>,
+    description: Option<String>,
+    base_frequency: f64,
+    port: Option<i32>,
+    url: Option<String>,
+*/
+
+    // Registration details
+    struct {
+        std::string password;
+        std::string name;
+        std::string hardware;
+        std::string antenna;
+        double bandwidth;
+        int users;
+        std::string remarks;
+        std::string description;
+        double base_frequency;
+        bool https;
+        std::optional<int> port;
+        std::optional<std::string> url;
+    } registration;
+    bool registration_enable;
 
     // Limits
     int limit_audio;
