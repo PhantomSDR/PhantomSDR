@@ -131,8 +131,10 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
                 // intersect and copy
                 int copy_l = std::max(audio_l, audio_m);
                 int copy_r = std::min(audio_r, audio_m + audio_fft_size);
-                std::copy(buf + copy_l - audio_l, buf + copy_r - audio_l,
-                          audio_fft_input.get() + copy_l - audio_m);
+                if (copy_r >= copy_l) {
+                    std::copy(buf + copy_l - audio_l, buf + copy_r - audio_l,
+                            audio_fft_input.get() + copy_l - audio_m);
+                }
                 fftwf_execute(p_real);
             } else if (demodulation == LSB) {
                 // For LSB, just copy the inverted bins to the audio frequencies
@@ -144,9 +146,11 @@ void AudioClient::send_audio(std::complex<float> *buf, size_t frame_num) {
                 int copy_l = std::max(audio_l, audio_m - audio_fft_size + 1);
                 int copy_r = std::min(audio_r, audio_m + 1);
                 // last element should be at audio_fft_size - 1
-                std::reverse_copy(buf + copy_l - audio_l,
-                                  buf + copy_r - audio_l,
-                                  audio_fft_input.get() + audio_m - copy_r + 1);
+                if (copy_r >= copy_l) {
+                    std::reverse_copy(buf + copy_l - audio_l,
+                                    buf + copy_r - audio_l,
+                                    audio_fft_input.get() + audio_m - copy_r + 1);
+                }
                 fftwf_execute(p_real);
                 std::reverse(audio_real.begin(), audio_real.end());
             }

@@ -49,7 +49,7 @@ void AGC::process(float *arr, size_t len) {
             // Calculate the desired gain
             float peak_sample = this->max();
 
-            float desired_gain = desired_level / (peak_sample + 1e-15f);
+            float desired_gain = desired_level / (peak_sample + 1e-10f);
 
             // Apply the attack/release smoothing
             if (desired_gain < gain) {
