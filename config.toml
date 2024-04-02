@@ -7,6 +7,7 @@ threads=8
 [register] # Register with the server
 enable=true # Set to true to publish the server
 name="Name"
+hardware="SomeSDR"
 antenna="Antenna"
 description="Description"
 url="" # Custom URL, if not server assigns http://ip:port
@@ -20,6 +21,7 @@ events=1000
 [input]
 sps=20000000 # Input Sample Rate
 fft_size=1048576 # FFT bins
+brightness_offset=0 # Waterfall brightness offset. Reduce to negative if you see black regions in the waterfall
 frequency=98000000 # Baseband frequency
 signal="iq" # real or iq
 accelerator="none" # Accelerator: none, cuda, opencl

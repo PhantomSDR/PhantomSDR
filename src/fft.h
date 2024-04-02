@@ -33,7 +33,7 @@ enum fft_accelerator {
 class FFT {
   public:
     enum direction { FORWARD, BACKWARD };
-    FFT(size_t size, int nthreads, int downsample_levels);
+    FFT(size_t size, int nthreads, int downsample_levels, int brightness_offset);
     virtual float *malloc(size_t size) = 0;
     virtual void free(float *buf) = 0;
     virtual int plan_c2c(direction d, int options) = 0;
@@ -64,7 +64,7 @@ class FFT {
 
 class noFFT : public FFT {
   public:
-    noFFT(size_t size, int nthreads) : FFT(size, nthreads, 1) {}
+    noFFT(size_t size, int nthreads) : FFT(size, nthreads, 1, 0) {}
     virtual float *malloc(size_t size) {
         return (float *)::malloc(sizeof(float) * size);
     }
@@ -92,7 +92,7 @@ class noFFT : public FFT {
 
 class FFTW : public FFT {
   public:
-    FFTW(size_t size, int nthreads, int downsample_levels);
+    FFTW(size_t size, int nthreads, int downsample_levels, int brightness_offset);
     virtual float *malloc(size_t size);
     virtual void free(float *buf);
     virtual int plan_c2c(direction d, int options);
@@ -109,7 +109,7 @@ class FFTW : public FFT {
 #ifdef MKL
 class mklFFT : public FFT {
   public:
-    mklFFT(size_t size, int nthreads, int downsample_levels);
+    mklFFT(size_t size, int nthreads, int downsample_levels, int brightness_offset);
     virtual float *malloc(size_t size);
     virtual void free(float *buf);
     virtual int plan_c2c(direction d, int options);
@@ -127,7 +127,7 @@ class mklFFT : public FFT {
 #ifdef CUFFT
 class cuFFT : public FFT {
   public:
-    cuFFT(size_t size, int nthreads, int downsample_levels);
+    cuFFT(size_t size, int nthreads, int downsample_levels, int brightness_offset);
     virtual float *malloc(size_t size);
     virtual void free(float *buf);
     virtual int plan_c2c(direction d, int options);
@@ -153,7 +153,7 @@ class cuFFT : public FFT {
 #ifdef CLFFT
 class clFFT : public FFT {
   public:
-    clFFT(size_t size, int nthreads, int downsample_levels);
+    clFFT(size_t size, int nthreads, int downsample_levels, int brightness_offset);
     virtual float *malloc(size_t size);
     virtual void free(float *buf);
     virtual int plan_c2c(direction d, int options);

@@ -60,10 +60,12 @@ static inline void half_and_quantize(float *powerbuf, float *halfbuf,
     }
 }
 
-FFT::FFT(size_t size, int nthreads, int downsample_levels)
-    : size{size}, size_log2{(int)round(log2(size))}, nthreads{nthreads},
-      downsample_levels{downsample_levels}, inbuf{0}, outbuf{0} {
+FFT::FFT(size_t size, int nthreads, int downsample_levels,
+         int brightness_offset)
+    : size{size}, nthreads{nthreads}, downsample_levels{downsample_levels},
+      inbuf{0}, outbuf{0} {
     windowbuf = new (std::align_val_t(32)) float[size];
+    size_log2 = (int)round(log2(size)) + brightness_offset;
     build_hann_window(windowbuf, size);
 }
 FFT::~FFT() { operator delete[](windowbuf, std::align_val_t(32)); }
@@ -75,8 +77,8 @@ float *FFT::get_input_buffer() { return inbuf; }
 float *FFT::get_output_buffer() { return outbuf; }
 int8_t *FFT::get_quantized_buffer() { return quantizedbuf; }
 
-FFTW::FFTW(size_t size, int nthreads, int downsample_levels)
-    : FFT(size, nthreads, downsample_levels), p{0} {}
+FFTW::FFTW(size_t size, int nthreads, int downsample_levels, int brightness_offset)
+    : FFT(size, nthreads, downsample_levels, brightness_offset), p{0} {}
 
 float *FFTW::malloc(size_t size) {
     return (float *)fftwf_malloc(sizeof(float) * size);
@@ -146,6 +148,7 @@ int FFTW::execute() {
     // Calculate the waterfall buffers
 
     int base_idx = 0;
+    int normalize = size;
     bool is_real = outbuf_len == size / 2;
     // For IQ input, the lowest frequency is in the middle
     if (!is_real) {
@@ -230,8 +233,8 @@ std::string kernel_window_real = R"<rawliteral>(
         throw std::runtime_error("OpenCL error");                              \
     }
 
-clFFT::clFFT(size_t size, int nthreads, int downsample_levels)
-    : FFT(size, nthreads, downsample_levels), window_real{cl::Kernel()},
+clFFT::clFFT(size_t size, int nthreads, int downsample_levels, int brightness_offset)
+    : FFT(size, nthreads, downsample_levels, brightness_offset), window_real{cl::Kernel()},
       window_complex{cl::Kernel()}, power_and_quantize{cl::Kernel()},
       half_and_quantize{cl::Kernel()}, dim{CLFFT_1D}, clLengths{size} {
     std::vector<cl::Platform> all_platforms;

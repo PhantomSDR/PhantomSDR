@@ -92,6 +92,7 @@ class broadcast_server : public PacketSender {
     // Server parameters
     int fft_size;
     int fft_result_size;
+    int brightness_offset;
     int sps;
     int64_t basefreq;
     int min_waterfall_fft;

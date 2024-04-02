@@ -2,8 +2,8 @@
 
 #include "fft.h"
 
-cuFFT::cuFFT(size_t size, int nthreads, int downsample_levels)
-    : FFT(size, nthreads, downsample_levels), plan{0} {
+cuFFT::cuFFT(size_t size, int nthreads, int downsample_levels, int brightness_offset)
+    : FFT(size, nthreads, downsample_levels. brightness_offset), plan{0} {
     int count;
     cudaGetDeviceCount(&count);
     if (!count) {
