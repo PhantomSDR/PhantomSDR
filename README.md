@@ -11,10 +11,11 @@ Will be empty for a while until someone decides to host!
 - Common demodulation modes
 - Can handle high sample rate SDRs (70MSPS real, 35MSPS IQ)
 - Support for both IQ and real data
+- Support for many different SDRs, as long as there is a tool available to output to standard out
 
 ## Screenshots
 
-With an RX888 SDR:
+With an RX888 SDR: (Other SDRs are supported)
 ![Screenshot](/docs/screenshot.jpg)
 
 ## Building
