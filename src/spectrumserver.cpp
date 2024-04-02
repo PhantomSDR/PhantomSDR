@@ -68,6 +68,8 @@ broadcast_server::broadcast_server(
     registration.name = config["register"]["name"].value_or("SDR");
     registration.hardware = config["register"]["hardware"].value_or("");
     registration.antenna = config["register"]["antenna"].value_or("");
+    registration.remarks = config["register"]["remarks"].value_or("");
+    registration.description = config["register"]["description"].value_or("");
     registration.users = 0;
     registration.https = false;
     std::string url = config["register"]["url"].value_or("");
