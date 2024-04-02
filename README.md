@@ -1,4 +1,6 @@
 # Spectrum Distributor
+## Setup Instructions
+Check out: https://github.com/PhantomSDR/PhantomSDR/wiki/Setup
 ## Receiver list
 https://phantomsdr.github.io/servers
 
