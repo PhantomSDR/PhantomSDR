@@ -30,6 +30,8 @@ class broadcast_server : public PacketSender {
     void stop();
 
     // Websocket handlers
+    void on_socket_init(websocketpp::connection_hdl hdl,
+                        websocketpp::lib::asio::ip::tcp::socket &s);
     void on_open(connection_hdl hdl);
     void on_open_unknown(connection_hdl hdl);
     void send_basic_info(connection_hdl hdl);
@@ -121,20 +123,20 @@ class broadcast_server : public PacketSender {
     std::string default_mode_str;
     demodulation_mode default_mode;
 
-/*
+    /*
 
-    id: String,
-    name: String,
-    hardware: Option<String>,
-    antenna: Option<String>,
-    bandwidth: f64,
-    users: Option<i32>,
-    remarks: Option<String>,
-    description: Option<String>,
-    base_frequency: f64,
-    port: Option<i32>,
-    url: Option<String>,
-*/
+        id: String,
+        name: String,
+        hardware: Option<String>,
+        antenna: Option<String>,
+        bandwidth: f64,
+        users: Option<i32>,
+        remarks: Option<String>,
+        description: Option<String>,
+        base_frequency: f64,
+        port: Option<i32>,
+        url: Option<String>,
+    */
 
     // Registration details
     struct {

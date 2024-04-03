@@ -117,14 +117,12 @@ int FFTW::plan_r2c(int options) {
 }
 
 void dsp_multiply_float(float *arr1, float *arr2, float *arr3, size_t len) {
-#pragma omp parallel for simd
     for (size_t i = 0; i < len; i++) {
         arr1[i] = arr2[i] * arr3[i];
     }
 }
 void dsp_multiply_complex(std::complex<float> *arr1, std::complex<float> *arr2,
                           float *arr3, size_t len) {
-#pragma omp parallel for simd
     for (size_t i = 0; i < len; i++) {
         arr1[i] = arr2[i] * arr3[i];
     }
@@ -148,7 +146,6 @@ int FFTW::execute() {
     // Calculate the waterfall buffers
 
     int base_idx = 0;
-    int normalize = size;
     bool is_real = outbuf_len == size / 2;
     // For IQ input, the lowest frequency is in the middle
     if (!is_real) {

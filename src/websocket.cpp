@@ -5,6 +5,12 @@
 
 #include "glaze/glaze.hpp"
 
+void broadcast_server::on_socket_init(
+    websocketpp::connection_hdl, websocketpp::lib::asio::ip::tcp::socket &s) {
+    websocketpp::lib::asio::ip::tcp::no_delay option(true);
+    s.set_option(option);
+}
+
 void broadcast_server::on_open(connection_hdl hdl) {
     server::connection_ptr con = m_server.get_con_from_hdl(hdl);
     std::string path = con->get_resource();
@@ -218,10 +224,9 @@ broadcast_server::waterfall_loop(int8_t *fft_power_quantized) {
             }
             // Equivalent to
             // data->send_waterfall(&fft_power_quantized[l_idx],frame_num);
-            futures.emplace_back(
-                io_service.post(boost::asio::use_future(
-                    std::bind(&WaterfallClient::send_waterfall, data,
-                              &fft_power_quantized[l_idx], frame_num))));
+            futures.emplace_back(io_service.post(boost::asio::use_future(
+                std::bind(&WaterfallClient::send_waterfall, data,
+                          &fft_power_quantized[l_idx], frame_num))));
         }
 
         // Prevent overwrite of previous level's quantized waterfall

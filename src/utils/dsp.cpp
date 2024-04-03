@@ -154,12 +154,12 @@ void dsp_float_to_int16(float *arr, int32_t *output, float mult, size_t len) {
     [[assume(len > 0)]];
     arr = std::assume_aligned<64>(arr);
     output = std::assume_aligned<64>(output);
-    int minimum = 32767;
-    int maximum = -32768;
+    const int32_t minimum = -32768;
+    const int32_t maximum = 32767;
 
     for (size_t i = 0; i < len; i++) {
         output[i] = (int32_t)(arr[i] * mult + 32768.5f) - 32768;
         output[i] =
-            std::max(std::min(output[i], (int32_t)32767), (int32_t)-32768);
+            std::max(std::min(output[i], maximum), minimum);
     }
 }

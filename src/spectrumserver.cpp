@@ -50,7 +50,7 @@ broadcast_server::broadcast_server(
     min_waterfall_fft = config["input"]["waterfall_size"].value_or(1024);
     brightness_offset = config["input"]["brightness_offset"].value_or(0);
     show_other_users = config["server"]["otherusers"].value_or(1) > 0;
-    std::cout << "Brightness offset: " << brightness_offset << std::endl;
+    
     default_frequency =
         config["input"]["defaults"]["frequency"].value_or(basefreq);
     default_mode_str = boost::algorithm::to_upper_copy<std::string>(
@@ -212,6 +212,9 @@ broadcast_server::broadcast_server(
     m_server.clear_access_channels(websocketpp::log::alevel::frame_header |
                                    websocketpp::log::alevel::frame_payload);
 
+    m_server.set_socket_init_handler(
+        std::bind(&broadcast_server::on_socket_init, this,
+                  std::placeholders::_1, std::placeholders::_2));
     m_server.set_open_handler(
         std::bind(&broadcast_server::on_open, this, std::placeholders::_1));
     m_server.set_http_handler(
