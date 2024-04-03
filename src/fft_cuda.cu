@@ -1,12 +1,14 @@
 #include <cassert>
+#include <stdexcept>
 
 #include "fft.h"
 
 cuFFT::cuFFT(size_t size, int nthreads, int downsample_levels, int brightness_offset)
-    : FFT(size, nthreads, downsample_levels. brightness_offset), plan{0} {
+    : FFT(size, nthreads, downsample_levels, brightness_offset), plan{0} {
     int count;
     cudaGetDeviceCount(&count);
     if (!count) {
+
         throw std::runtime_error("No CUDA devices found");
     }
 
@@ -25,7 +27,7 @@ float *cuFFT::malloc(size_t size) {
 }
 void cuFFT::free(float *ptr) { cudaFreeHost(ptr); }
 
-int cuFFT::plan_c2c(direction d, int options) {
+int cuFFT::plan_c2c(direction d, int) {
     assert(!plan);
 
     cudaMalloc(&cuda_inbuf, sizeof(float) * size * 2);
@@ -41,7 +43,7 @@ int cuFFT::plan_c2c(direction d, int options) {
     cuda_direction = d == FORWARD ? CUFFT_FORWARD : CUFFT_INVERSE;
     return 0;
 }
-int cuFFT::plan_r2c(int options) {
+int cuFFT::plan_r2c(int) {
     assert(!plan);
 
     cudaMalloc(&cuda_inbuf, sizeof(float) * size);

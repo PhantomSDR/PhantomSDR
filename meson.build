@@ -3,15 +3,14 @@ project(
     'cpp',
     default_options : [
         'optimization=3',
+        'warning_level=3',
+        'cpp_std=c++20',
         #'b_lto=true',
         #'b_sanitize=address'
     ]
 )
 
-add_project_arguments('-march=native', language: 'cpp')
-add_project_arguments('-ggdb3', language: 'cpp')
-add_project_arguments(['-std=c++23','-Wall','-Wextra','-Wpedantic'], language: 'cpp')
-#add_project_link_arguments(['-rdynamic', '-no-pie'], language: 'cpp')
+add_project_arguments(['-march=native', '-ggdb3', '-std=c++23'], language: 'cpp')
 
 cpp = meson.get_compiler('cpp')
 
