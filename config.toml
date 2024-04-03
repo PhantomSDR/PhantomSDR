@@ -5,7 +5,7 @@ otherusers=1 # Send where other users are listening, 0 to disable
 threads=8
 
 [register] # Register with the server
-enable=true # Set to true to publish the server
+enable=false # Set to true to publish the server
 name="Name"
 hardware="SomeSDR"
 antenna="Antenna"
