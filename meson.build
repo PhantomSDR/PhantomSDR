@@ -20,9 +20,9 @@ cmake = import('cmake')
 system_deps = []
 host_system = host_machine.system()
 if host_system == 'windows'
-    system_deps += dependency('ws2_32')
-    system_deps += dependency('bcrypt')
-    system_deps += dependency('wsock32')
+    system_deps += cpp.find_library('ws2_32')
+    system_deps += cpp.find_library('bcrypt')
+    system_deps += cpp.find_library('wsock32')
 endif
 
 system_deps += dependency('threads')
