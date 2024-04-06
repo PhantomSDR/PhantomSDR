@@ -7,6 +7,7 @@ project(
         'cpp_std=c++20',
         #'b_lto=true',
         #'b_sanitize=address'
+
     ]
 )
 
@@ -22,6 +23,7 @@ if host_system == 'windows'
     system_deps += dependency('ws2_32')
     system_deps += dependency('bcrypt')
     system_deps += dependency('wsock32')
+endif
 
 system_deps += dependency('threads')
 system_deps += cpp.find_library('stdc++fs', required : false)
