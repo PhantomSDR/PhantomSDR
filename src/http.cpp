@@ -39,7 +39,11 @@ void broadcast_server::on_http(connection_hdl hdl) {
     filename = filename.substr(0, filename.find("?"));
     // All the files are under the html root folder
     if (filename == "/" || filename == "\\\\") {
-        filename = m_docroot + std::filesystem::path::preferred_separator + "index.html";
+#ifdef _WIN32
+        filename = m_docroot + "\\" + "index.html";
+#else
+        filename = m_docroot + "/" + "index.html";
+#endif
     } else {
 #ifdef _WIN32
         filename = m_docroot + filename.substr(2);
