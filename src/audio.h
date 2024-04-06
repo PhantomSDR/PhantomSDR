@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
+#define FLAC__NO_DLL
 #include "FLAC++/encoder.h"
 #include "FLAC++/metadata.h"
 

@@ -1,8 +1,10 @@
 #ifndef DSP_H
 #define DSP_H
-
+#define _USE_MATH_DEFINES
+#include <math.h>
 #include <complex>
 #include <cstddef>
+#include <cstdint>
 
 void build_hann_window(float *arr, int num);
 void build_blackman_harris_window(float *arr, int num);

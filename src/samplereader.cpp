@@ -8,7 +8,11 @@
 
 FileSampleReader::FileSampleReader(FILE *f) : f{f} {}
 int FileSampleReader::read(void *arr, int num) {
+#ifdef _WIN32
+    return fread(arr, sizeof(uint8_t), num, f);
+#else
     return fread_unlocked(arr, sizeof(uint8_t), num, f);
+#endif
 }
 
 SampleConverterBase::SampleConverterBase(std::unique_ptr<SampleReader> reader)

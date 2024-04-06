@@ -38,19 +38,22 @@ void broadcast_server::on_http(connection_hdl hdl) {
 
     filename = filename.substr(0, filename.find("?"));
     // All the files are under the html root folder
-    if (filename == "/") {
-        filename = m_docroot + "/" + "index.html";
+    if (filename == "/" || filename == "\\\\") {
+        filename = m_docroot + std::filesystem::path::preferred_separator + "index.html";
     } else {
-        filename = m_docroot + "/" + filename.substr(1);
+#ifdef _WIN32
+        filename = m_docroot + filename.substr(2);
+#else
+        filename = m_docroot + filename.substr(1);
+#endif
     }
-
     // Figure out the correct mime-type to send to the client
-    std::string extension = std::filesystem::path(filename).extension();
+    std::string extension = std::filesystem::path(filename).extension().string();
     std::string mime_type = get_mime_type(extension);
     con->append_header("content-type", mime_type);
     con->append_header("Connection", "close");
     // Try to open the file
-    file.open(filename.c_str(), std::ios::in);
+    file.open(filename.c_str(), std::ios::in | std::ios::binary);
     if (!file) {
         // 404 error
         std::stringstream ss;

@@ -3,6 +3,12 @@
 
 #include <cstdio>
 #include <iostream>
+#include <csignal>
+
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#endif
 
 #include <boost/algorithm/string.hpp>
 
@@ -333,6 +339,9 @@ int main(int argc, char **argv) {
 
     // Set input to binary
     freopen(NULL, "rb", stdin);
+#ifdef _WIN32
+    _setmode( _fileno( stdin ), _O_BINARY );
+#endif
     std::unique_ptr<SampleReader> reader =
         std::make_unique<FileSampleReader>(stdin);
     std::unique_ptr<SampleConverterBase> driver;
