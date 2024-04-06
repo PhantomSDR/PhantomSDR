@@ -16,7 +16,15 @@ cpp = meson.get_compiler('cpp')
 
 cmake = import('cmake')
 
-thread_dep = dependency('threads')
+system_deps = []
+host_system = host_machine.system()
+if host_system == 'windows'
+    system_deps += dependency('ws2_32')
+    system_deps += dependency('bcrypt')
+    system_deps += dependency('wsock32')
+
+system_deps += dependency('threads')
+system_deps += cpp.find_library('stdc++fs', required : false)
 
 fft_deps = []
 fftw3f_dep = dependency('fftw3f')
@@ -78,7 +86,6 @@ cuda_dep = dependency('cuda', required : false)
 cufft_dep = dependency('cufft', required : false)
 opencl_dep = dependency('OpenCL', required : false)
 clfft_dep = dependency('clFFT', required : false)
-stdcppfs_dep = cpp.find_library('stdc++fs', required : false)
 
 cuda_srcs = []
 
@@ -134,8 +141,7 @@ executable(
     'spectrumserver',
     srcs,
     dependencies : [
-        stdcppfs_dep,
-        thread_dep,
+        system_deps,
         fft_deps,
         websocketpp_dep,
         boost_dep,

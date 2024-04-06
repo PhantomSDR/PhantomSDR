@@ -34,7 +34,7 @@ dnf install g++ meson cmake fftw3-devel websocketpp-devel flac-devel zlib-devel 
 ```
 git clone --recursive https://github.com/PhantomSDR/PhantomSDR.git
 cd PhantomSDR
-meson build --optimization 3
+meson build --prefer-static
 meson compile -C build
 ```
 
